@@ -4,129 +4,148 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Turbo Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Barlow:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --panel: rgba(14, 18, 28, .9); --line: rgba(255, 255, 255, .12);
-    --text: #ffffff; --dim: rgba(255, 255, 255, .65); --accent: #ffd23f; --good: #3bceac; --bad: #ee4266;
+    --bg: #0c0e13; --panel: #151a24; --panel2: #1d2432; --line: rgba(255,255,255,.09);
+    --text: #f4f5f7; --dim: #97a1b3; --accent: #ffcc00; --red: #e63946; --good: #2ec4b6;
+    --display: "Russo One", "Arial Black", Impact, sans-serif; --ui: "Barlow", "Helvetica Neue", Arial, sans-serif;
   }
-  html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden; color: var(--text);
-    font-family: "Arial Rounded MT Bold", "Helvetica Neue", Arial, sans-serif; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; color: var(--text); font-family: var(--ui); }
   canvas#c { display: block; width: 100vw; height: 100vh; }
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-    background: rgba(8, 10, 16, .55); padding: 16px; box-sizing: border-box; overflow: auto; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; overflow: auto;
+    background: radial-gradient(ellipse at 30% 20%, rgba(230,57,70,.18), transparent 60%), linear-gradient(180deg, rgba(8,10,14,.55), rgba(8,10,14,.85)); }
   .screen.on { display: flex; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px;
-    width: min(560px, 100%); box-sizing: border-box; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); margin: auto; }
-  .card.wide { width: min(900px, 100%); }
-  h1 { font-size: clamp(44px, 9vw, 84px); color: var(--accent); margin: 0; text-align: center; }
-  h2 { margin: 0 0 14px; font-size: 26px; }
-  .sub { color: var(--dim); text-align: center; margin: 4px 0 18px; }
-  .btn { display: block; width: 100%; padding: 14px 16px; margin: 8px 0; border-radius: 12px; border: 1px solid var(--line);
-    background: rgba(255, 255, 255, .06); color: var(--text); font: inherit; font-size: 18px; cursor: pointer; text-align: left; }
-  .btn:hover:not(:disabled) { background: rgba(255, 255, 255, .13); }
-  .btn.primary { background: var(--accent); color: #1b1b1b; border-color: transparent; text-align: center; }
-  .btn.primary:hover:not(:disabled) { background: #ffdd66; }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 26px; width: min(560px, 100%); box-sizing: border-box; margin: auto;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55); position: relative; overflow: hidden; }
+  .card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px;
+    background: repeating-conic-gradient(#fff 0 25%, #111 0 50%) 0 0 / 12px 12px; opacity: .9; }
+  .card.wide { width: min(920px, 100%); }
+  .logo { text-align: center; margin: 6px 0 2px; font-family: var(--display); font-style: italic; line-height: .9; transform: skewX(-8deg); user-select: none; }
+  .logo b { display: block; font-size: clamp(54px, 11vw, 96px); color: var(--accent); letter-spacing: 2px;
+    text-shadow: 4px 4px 0 var(--red), 8px 8px 0 rgba(0,0,0,.35); }
+  .logo i { display: inline-block; font-style: normal; font-size: clamp(20px, 4vw, 30px); color: #111; background: var(--text); padding: 2px 14px; margin-top: 10px; letter-spacing: 8px; }
+  .tag { text-align: center; color: var(--dim); margin: 14px 0 18px; font-weight: 600; font-size: 17px; }
+  h2 { font-family: var(--display); font-weight: 400; font-style: italic; margin: 6px 0 16px; font-size: 28px; letter-spacing: .5px; }
+  .btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; margin: 10px 0; border: 0; border-radius: 3px; cursor: pointer;
+    background: var(--panel2); color: var(--text); font: 700 19px var(--ui); letter-spacing: .3px; text-align: left; transform: skewX(-8deg);
+    border-left: 5px solid transparent; transition: transform .12s, background .12s, border-color .12s; box-sizing: border-box; }
+  .btn > * { transform: skewX(8deg); }
+  .btn:hover:not(:disabled) { background: #263044; border-left-color: var(--accent); transform: skewX(-8deg) translateX(4px); }
+  .btn.primary { background: var(--accent); color: #141414; justify-content: center; font-family: var(--display); font-weight: 400; font-size: 22px; letter-spacing: 1px; }
+  .btn.primary:hover:not(:disabled) { background: #ffd83d; border-left-color: var(--red); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn .ico { font-size: 22px; width: 28px; text-align: center; }
+  .btn small { display: block; color: var(--dim); font-weight: 500; font-size: 14px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .row .btn { flex: 1; }
-  .coins { color: var(--accent); }
-  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .coins { font-family: var(--display); color: var(--accent); font-size: 18px; white-space: nowrap; }
   .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
-  .swatch { width: 42px; height: 42px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; position: relative; box-sizing: border-box; }
-  .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
-  .lock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px;
-    color: #fff; background: rgba(0, 0, 0, .5); border-radius: 50%; }
+  .swatch { width: 40px; height: 40px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; position: relative; box-sizing: border-box; }
+  .swatch.sel { border-color: #fff; box-shadow: 0 0 0 3px var(--accent); }
+  .lock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 11px var(--ui); color: #fff; background: rgba(0,0,0,.55); border-radius: 50%; }
   .opts { display: flex; gap: 10px; flex-wrap: wrap; }
-  .opt { flex: 1; min-width: 120px; padding: 10px; border-radius: 12px; border: 2px solid var(--line);
-    background: rgba(255, 255, 255, .05); color: #fff; font: inherit; cursor: pointer; text-align: center; }
+  .opt { flex: 1; min-width: 120px; padding: 12px; border-radius: 3px; border: 2px solid var(--line); background: var(--panel2); color: #fff; font: 700 17px var(--ui); cursor: pointer; text-align: center; }
   .opt.sel { border-color: var(--accent); }
-  .opt small { display: block; color: var(--dim); margin-top: 4px; }
-  input[type=text], select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
-    background: rgba(0, 0, 0, .35); color: #fff; font: inherit; font-size: 17px; }
-  .tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
-  .track { border: 2px solid var(--line); border-radius: 14px; padding: 10px; cursor: pointer; background: rgba(255, 255, 255, .04); }
+  .opt small { display: block; color: var(--dim); margin-top: 3px; font-weight: 500; font-size: 13px; }
+  input[type=text], select { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 3px; border: 1px solid var(--line); background: #0f131b; color: #fff; font: 600 17px var(--ui); }
+  label { display: block; margin: 16px 0 7px; color: var(--dim); font-size: 13px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+  .check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--text); }
+  .tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .track { border: 2px solid var(--line); border-radius: 4px; padding: 10px; cursor: pointer; background: var(--panel2); transition: transform .12s, border-color .12s; }
+  .track:hover { transform: translateY(-3px); }
   .track.sel { border-color: var(--accent); }
-  .track canvas { width: 100%; height: auto; border-radius: 10px; display: block; }
-  .track b { display: block; margin-top: 8px; }
+  .track canvas { width: 100%; height: auto; border-radius: 3px; display: block; }
+  .track b { display: block; margin-top: 10px; font-family: var(--display); font-weight: 400; font-size: 18px; }
   .small { font-size: 14px; color: var(--dim); }
-  .code { word-break: break-all; background: rgba(0, 0, 0, .35); padding: 10px; border-radius: 10px; font-size: 14px; user-select: all; }
-  label { display: block; margin: 14px 0 6px; color: var(--dim); font-size: 14px; }
-  .buybar { margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 210, 63, .12); display: none; }
+  .code { word-break: break-all; background: #0f131b; padding: 12px; border-radius: 3px; font: 600 14px var(--ui); user-select: all; border: 1px dashed rgba(255,204,0,.35); }
+  .buybar { margin-top: 14px; padding: 12px 14px; border-radius: 3px; background: rgba(255,204,0,.1); border-left: 4px solid var(--accent); display: none; }
   .buybar.on { display: flex; }
-  #preview { width: 100%; height: 150px; background: #3f8f3a; border-radius: 12px; display: block; }
-  .status { margin: 10px 0; padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, .06); }
+  #preview { width: 100%; height: 150px; border-radius: 3px; display: block; }
+  .status { margin: 14px 0 6px; padding: 12px 14px; border-radius: 3px; background: var(--panel2); font-weight: 600; border-left: 4px solid var(--good); }
+  .slots { display: grid; gap: 8px; margin-top: 8px; }
+  .slot { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel2); border-radius: 3px; font-weight: 700; font-size: 17px; }
+  .slot .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0,0,0,.4); }
+  .slot.empty { color: var(--dim); font-weight: 500; font-style: italic; }
+  .slot .badge { margin-left: auto; font-size: 12px; letter-spacing: 1.5px; padding: 3px 8px; border-radius: 2px; background: var(--accent); color: #111; }
+  .slot .badge.you { background: var(--good); }
+  .hint { text-align: center; font-size: 13px; color: var(--dim); margin-top: 18px; line-height: 1.7; }
+  kbd { font: 700 12px var(--ui); background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 1px 6px; color: var(--text); }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 
-<!-- main menu -->
 <div class="screen" id="scrMenu"><div class="card">
-  <h1>TURBO LOOP</h1>
-  <p class="sub">Arcade racing · 4 tracks · race the AI or a friend</p>
-  <p class="sub"><span class="coins">🪙 <span class="coinCount">0</span> coins</span></p>
-  <button class="btn primary" data-go="scrTracks">🏁 Single race</button>
-  <button class="btn" data-go="scrOnline">🌐 Race a friend online</button>
-  <button class="btn" data-go="scrGarage">🔧 Garage</button>
-  <p class="small" style="text-align:center;margin-top:16px">Version 1.3 · ↑/W gas · ↓/S brake · ←→/A D steer · Space drift · P pause · M sound · Q menu</p>
+  <div class="topbar"><span class="small" id="helloName"></span><span class="coins">🪙 <span class="coinCount">0</span></span></div>
+  <div class="logo"><b>TURBO</b><i>LOOP</i></div>
+  <p class="tag" id="tagline">Brakes are optional.</p>
+  <button class="btn primary" data-go="scrTracks"><span>RACE THE AI</span></button>
+  <button class="btn" data-go="scrOnline"><span class="ico">🌐</span><span>Race friends online<small>Up to 4 players · send a link</small></span></button>
+  <button class="btn" data-go="scrGarage"><span class="ico">🔧</span><span>Garage<small>Paint job, body style, name</small></span></button>
+  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.0</p>
 </div></div>
 
-<!-- track select -->
 <div class="screen" id="scrTracks"><div class="card wide">
-  <div class="topbar"><h2 style="margin:0">Choose a track</h2><span class="coins">🪙 <span class="coinCount">0</span></span></div>
+  <div class="topbar"><h2>Pick your circuit</h2><span class="coins">🪙 <span class="coinCount">0</span></span></div>
   <div class="tracks" id="trackList"></div>
-  <div class="row" style="margin-top:14px">
-    <button class="btn" data-go="scrMenu">← Back</button>
-    <button class="btn primary" id="btnRace">Race!</button>
+  <div class="row" style="margin-top:10px">
+    <button class="btn" data-go="scrMenu"><span>← Back</span></button>
+    <button class="btn primary" id="btnRace"><span>LIGHTS OUT ▶</span></button>
   </div>
 </div></div>
 
-<!-- garage -->
 <div class="screen" id="scrGarage"><div class="card">
-  <div class="topbar"><h2 style="margin:0">Garage</h2><span class="coins">🪙 <span class="coinCount">0</span></span></div>
+  <div class="topbar"><h2>Garage</h2><span class="coins">🪙 <span class="coinCount">0</span></span></div>
   <canvas id="preview" width="520" height="150"></canvas>
   <label for="inName">Driver name</label>
   <input type="text" id="inName" maxlength="10" autocomplete="off">
-  <label>Color</label>
+  <label>Paint</label>
   <div class="swatches" id="swatches"></div>
-  <label>Car style</label>
+  <label>Body</label>
   <div class="opts" id="styles"></div>
-  <label><input type="checkbox" id="inStripe"> Racing stripe</label>
+  <label class="check"><input type="checkbox" id="inStripe"> Racing stripe</label>
   <div class="buybar row" id="buyBar">
-    <span id="buyText" style="flex:1"></span>
-    <button class="btn primary" id="btnBuy" style="width:auto;margin:0">Buy</button>
+    <span id="buyText" style="flex:1;font-weight:600"></span>
+    <button class="btn primary" id="btnBuy" style="width:auto;margin:0;padding:10px 18px"><span>BUY</span></button>
   </div>
-  <button class="btn" data-go="scrMenu" style="margin-top:16px">← Back</button>
+  <button class="btn" data-go="scrMenu" style="margin-top:18px"><span>← Back to menu</span></button>
 </div></div>
 
-<!-- online lobby -->
 <div class="screen" id="scrOnline"><div class="card">
-  <div class="topbar"><h2 style="margin:0">Race a friend</h2><span class="coins">🪙 <span class="coinCount">0</span></span></div>
+  <div class="topbar"><h2>Online race</h2><span class="coins">🪙 <span class="coinCount">0</span></span></div>
   <div id="onStart">
-    <button class="btn primary" id="btnHost">Create a room</button>
-    <label for="inJoin">…or join a friend's room (paste their link or code)</label>
-    <div class="row"><input type="text" id="inJoin" placeholder="link or room code" style="flex:3"><button class="btn" id="btnJoin" style="flex:1;margin:0;text-align:center">Join</button></div>
+    <button class="btn primary" id="btnHost"><span>CREATE A ROOM</span></button>
+    <label for="inJoin">Or join a friend — paste their link or room code</label>
+    <div class="row"><input type="text" id="inJoin" placeholder="link or room code" style="flex:3"><button class="btn" id="btnJoin" style="flex:1;margin:0;justify-content:center"><span>Join</span></button></div>
   </div>
   <div id="onRoom" style="display:none">
     <div id="hostShare">
-      <label>Send this link to your friend:</label>
-      <div class="code" id="shareLink"></div>
-      <button class="btn" id="btnCopy" style="text-align:center">Copy link</button>
-      <p class="small" id="fileNote" style="display:none">Tip: share links only open for friends from the online version of the game. They can also paste just the room code: <b id="roomCode"></b></p>
+      <label>Send this link to up to 3 friends</label>
+      <div class="code" id="shareLink">…</div>
+      <button class="btn" id="btnCopy" style="justify-content:center"><span>📋 Copy link</span></button>
+      <p class="small" id="fileNote" style="display:none">Friends can also paste just the room code: <b id="roomCode"></b></p>
     </div>
     <div class="status" id="netStatus">Connecting…</div>
+    <label>Drivers</label>
+    <div class="slots" id="slots"></div>
     <div id="hostControls" style="display:none">
-      <label for="selTrack">Track</label><select id="selTrack"></select>
-      <label for="selBet">Bet (coins, winner takes it)</label><select id="selBet"></select>
-      <button class="btn primary" id="btnStartOnline" style="margin-top:14px">Start race</button>
+      <div class="row">
+        <div style="flex:1;min-width:160px"><label for="selTrack">Track</label><select id="selTrack"></select></div>
+        <div style="flex:1;min-width:160px"><label for="selBet">Bet per driver</label><select id="selBet"></select></div>
+      </div>
+      <button class="btn primary" id="btnStartOnline" style="margin-top:18px"><span>LIGHTS OUT ▶</span></button>
     </div>
-    <div id="guestInfo" class="small" style="display:none"></div>
+    <p class="small" id="guestInfo" style="display:none;margin-top:14px"></p>
   </div>
-  <button class="btn" id="btnLeave" style="margin-top:16px">← Back</button>
+  <button class="btn" id="btnLeave" style="margin-top:14px"><span>← Leave</span></button>
 </div></div>
 
 <script>
-// Turbo Loop: top-down arcade racer. Solo vs 3 AI cars, or 1v1 online with a friend (PeerJS, peer-to-peer).
+// Turbo Loop 2.0: top-down arcade racer. Solo vs 3 AI, or up to 4 players online (host relays everyone's positions).
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -136,9 +155,10 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
-const LAPS = 3, HALF_W = 95, WORLD_W = 3600, WORLD_H = 2700, MAX = 560, SECTORS = 8;
-const FONT = '"Arial Rounded MT Bold", "Helvetica Neue", Arial, sans-serif';
+const LAPS = 3, HALF_W = 95, WORLD_W = 3600, WORLD_H = 2700, MAX = 560, SECTORS = 8, MAX_PLAYERS = 4;
+const FONT = '"Barlow", "Helvetica Neue", Arial, sans-serif', DFONT = '"Russo One", "Arial Black", Impact, sans-serif';
 const $ = id => document.getElementById(id);
+const ME = Math.random().toString(36).slice(2, 10);
 
 // ---------- save data (browser storage; the game works without it) ----------
 const COLORS = [
@@ -167,6 +187,7 @@ function stripeFor(hex) {
   return l > 150 ? '#1b1b1b' : '#ffffff';
 }
 function myProfile() { return { name: save.name || 'YOU', body: colorOf(save.color), style: save.style, stripeOn: save.stripe }; }
+
 
 // ---------- tracks ----------
 const TRACKS = [
@@ -296,16 +317,17 @@ function paintWorld(t) {
   t.world = world;
 }
 
+
 // ---------- cars ----------
 const AI_DRIVERS = [{ name: 'Blaze', skill: .95 }, { name: 'Viper', skill: .92 }, { name: 'Bolt', skill: .9 }];
-let cars = [], skids = [], dust = [], mode = 'solo', stake = 0, coinDelta = 0, coinNotes = [];
+let cars = [], skids = [], dust = [], mode = 'solo', stake = 0, coinDelta = 0, coinNotes = [], raceSize = 0;
 
 function makeCar(profile, gridSlot, extra) {
   const gi = TR.N - 14 - Math.floor(gridSlot / 2) * 16, p = at(gi), a = tanAt(gi), side = gridSlot % 2 ? 1 : -1, lane = side * 38;
   return Object.assign({
     name: profile.name, body: profile.body, stripe: profile.stripeOn === false ? null : stripeFor(profile.body), style: profile.style,
     x: p[0] - Math.sin(a) * lane, y: p[1] + Math.cos(a) * lane, a, vx: 0, vy: 0, speed: 0, idx: gi, lap: 0, next: SECTORS, wrongT: 0,
-    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lane: side * 22, laneT: Math.random() * 10,
+    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, snaps: [], clock: null,
   }, extra);
 }
 
@@ -314,35 +336,38 @@ function startRace(opts) {
   TR = trackById(opts.trackId); paintWorld(TR);
   const me = myProfile();
   if (mode === 'solo') {
-    const used = new Set([me.body]);
-    const pool = COLORS.filter(c => !used.has(c.c) && !c.price).map(c => c.c).sort(() => Math.random() - .5);
-    cars = [makeCar(me, 0, { local: true })].concat(AI_DRIVERS.map((d, i) => makeCar(
-      { name: d.name, body: pool[i], style: STYLES[i % 3].id, stripeOn: true }, i + 1, { ai: true, skill: d.skill })));
+    const pool = COLORS.filter(c => c.c !== me.body && !c.price).map(c => c.c).sort(() => Math.random() - .5);
+    cars = [makeCar(me, 0, { local: true, id: ME })].concat(AI_DRIVERS.map((d, i) => makeCar(
+      { name: d.name, body: pool[i], style: STYLES[i % 3].id, stripeOn: true }, i + 1, { ai: true, skill: d.skill, id: 'ai' + i })));
   } else {
-    const r = net.remote || { name: 'Friend', body: '#5b8def', style: 'sport' };
-    const mine = makeCar(me, opts.slot, { local: true }), theirs = makeCar(r, 1 - opts.slot, { remote: true });
-    theirs.tx = theirs.x; theirs.ty = theirs.y; theirs.ta = theirs.a;
-    cars = [mine, theirs];
+    // everyone builds the same grid from the host's order; I drive my own car, the rest are remote
+    cars = [];
+    opts.order.forEach((p, slot) => {
+      if (p.id === ME) cars.unshift(makeCar(me, slot, { local: true, id: ME }));
+      else cars.push(makeCar(p.profile, slot, { remote: true, id: p.id }));
+    });
   }
-  skids = []; dust = []; raceTime = 0; tState = 0; lastCount = 4; state = 'countdown';
+  raceSize = cars.length;
+  skids = []; dust = []; raceTime = 0; tState = 0; lastCount = 4; acc = 0; finishWait = 0; state = 'countdown';
   showScreen(null);
 }
 
 // ---------- input ----------
 const keys = {};
 addEventListener('keydown', e => {
-  if (e.target && e.target.tagName === 'INPUT') return;
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
   keys[e.code] = true;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code) && state !== 'menu') e.preventDefault();
   audioInit();
   if (state === 'finished' && e.code === 'Enter') {
     if (mode === 'solo') startRace({ mode: 'solo', trackId: TR.id });
-    else if (net.isHost && net.conn) hostStart();
+    else if (net.isHost) hostStart();
   } else if ((e.code === 'KeyQ' || (e.code === 'Escape' && state === 'finished')) && state !== 'menu') {
     toMenu();
   } else if ((e.code === 'KeyP' || e.code === 'Escape') && mode === 'solo') {
     if (state === 'race') state = 'paused'; else if (state === 'paused') state = 'race';
-  } else if (e.code === 'KeyR' && mode === 'solo' && state !== 'menu') startRace({ mode: 'solo', trackId: TR.id });
+  } else if (e.code === 'KeyR' && state === 'paused') startRace({ mode: 'solo', trackId: TR.id });
+  else if (e.code === 'KeyR' && state === 'race') respawn(cars[0]);
   else if (e.code === 'KeyM') muted = !muted;
 });
 addEventListener('keyup', e => keys[e.code] = false);
@@ -372,13 +397,15 @@ function beep(freq, len) {
   o.connect(gn); gn.connect(actx.destination); o.start(); o.stop(actx.currentTime + len);
 }
 
+
 // ---------- physics ----------
 function drive(car, ctl, dt) {
   const N = TR.N, fx = Math.cos(car.a), fy = Math.sin(car.a), rx = -fy, ry = fx;
   let vf = car.vx * fx + car.vy * fy, vr = car.vx * rx + car.vy * ry;
   let [idx, dist] = nearestIndex(car.x, car.y, car.idx);
   if (dist > HALF_W * 2.5) [idx, dist] = nearestIndex(car.x, car.y, null); // far off track: re-find position on the whole track
-  const prev = car.idx; car.idx = idx;
+  const prev = car.idx; car.idx = idx; car.dist = dist;
+  if (dist < HALF_W + 10) car.lastGood = idx;
   car.off = dist > HALF_W + 6;
   const max = (car.off ? MAX * .45 : MAX) * car.skill;
 
@@ -449,8 +476,19 @@ function collide() {
   }
 }
 
+// Respawn: only when deep in the grass, and always a bit BEHIND the last spot you were on the track,
+// so it can never be used as a shortcut.
+const RESPAWN_DIST = HALF_W + 130;
+function respawn(c) {
+  if (c.done || (c.dist || 0) < RESPAWN_DIST) return;
+  const i = ((c.lastGood - 25) % TR.N + TR.N) % TR.N, p = at(i), a = tanAt(i);
+  Object.assign(c, { x: p[0], y: p[1], a, vx: 0, vy: 0, speed: 0, idx: i, dist: 0, wrongT: 0, off: false });
+  beep(330, .15);
+}
+
 // ---------- race flow ----------
-let state = 'menu', tState = 0, raceTime = 0, results = [], newBest = false, lastCount = 4;
+let state = 'menu', tState = 0, raceTime = 0, results = [], newBest = false, lastCount = 4, acc = 0, finishWait = 0;
+const STEP = 1 / 120; // physics runs at a fixed 120 Hz, whatever the screen's frame rate
 function progress(c) { return c.done ? 1e9 - c.finishTime : c.lap * TR.N + c.idx; }
 const fmt = t => { if (t == null || !isFinite(t)) return '--:--.--'; const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(2).padStart(5, '0')}`; };
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][n] || 'th');
@@ -470,18 +508,29 @@ function finishSolo() {
   if (newBest) { coinDelta += 25; coinNotes.push('best lap +25'); }
   save.coins += coinDelta;
 }
-function maybeFinishOnline() {
-  const [me, them] = cars;
-  if (!me.done || !(them.done || them.left) || state === 'finished') return;
+function maybeFinishOnline(force) {
+  const me = cars[0];
+  if (!me.done || state === 'finished') return;
+  if (!force && !cars.every(c => c.done || c.left)) return;
   state = 'finished'; tState = 0;
-  results = [...cars].sort((a, b) => (a.done ? a.finishTime : 1e9) - (b.done ? b.finishTime : 1e9));
-  const won = results[0] === me;
-  coinDelta = won ? 50 : 20; coinNotes = [won ? 'win +50' : 'race +20'];
+  const finishTime = c => c.done ? c.finishTime : 1e9 + progress(c) * -1e-6;
+  results = [...cars].sort((a, b) => finishTime(a) - finishTime(b));
+  const place = results.indexOf(me) + 1, won = place === 1;
+  coinDelta = [0, 50, 30, 20, 10][place]; coinNotes = [`${ordinal(place)} +${coinDelta}`];
   if (newBest) { coinDelta += 25; coinNotes.push('best lap +25'); }
-  if (stake && !them.left) { coinDelta += won ? stake : -stake; coinNotes.push(`bet ${won ? '+' : '-'}${stake}`); }
+  if (stake) { const pot = stake * (raceSize - 1); coinDelta += won ? pot : -stake; coinNotes.push(won ? `pot +${pot}` : `bet -${stake}`); }
   save.coins = Math.max(0, save.coins + coinDelta); persist();
 }
 
+function physicsStep(dt) {
+  raceTime += dt;
+  for (const c of cars) {
+    if (c.remote) continue;
+    const ctl = c.ai ? aiControl(c, dt) : c.done ? { gas: false, brake: true, steer: 0 } : input();
+    drive(c, ctl, dt);
+  }
+  collide();
+}
 function update(dt) {
   tState += dt;
   if (state === 'countdown') {
@@ -490,14 +539,13 @@ function update(dt) {
     if (tState >= 3) { state = 'race'; tState = 0; lastCount = 4; }
   }
   if (state === 'race' || state === 'finished') {
-    raceTime += dt;
-    for (const c of cars) {
-      if (c.remote) { remoteStep(c, dt); continue; }
-      const ctl = c.ai ? aiControl(c, dt) : c.done ? { gas: false, brake: true, steer: 0 } : input();
-      drive(c, ctl, dt);
+    acc += dt; let n = 0;
+    while (acc >= STEP && n++ < 12) { physicsStep(STEP); acc -= STEP; }
+    for (const c of cars) if (c.remote) remoteStep(c, dt);
+    if (mode === 'online') {
+      sendState(false);
+      if (cars[0].done && state === 'race' && (finishWait += dt) > 45) { cars.forEach(c => { if (!c.done) c.left = true; }); maybeFinishOnline(true); }
     }
-    collide();
-    if (mode === 'online') sendState(false);
   }
   for (const s of skids) s.life -= dt * .08;
   skids = skids.filter(s => s.life > 0);
@@ -510,10 +558,40 @@ function update(dt) {
   }
 }
 
-// ---------- online ----------
-// First try a direct browser-to-browser link (PeerJS / WebRTC). Between different home or school networks that
-// often can't connect, so after a few seconds we fall back to a relay: a free public MQTT server over WebSockets.
-const net = { peer: null, conn: null, isHost: false, remote: null, lobby: { track: 'green', stake: 0 }, lastSend: 0, timer: null, usingRelay: false };
+// ---------- smooth remote cars: play them back ~0.12 s in the past, gliding between received positions ----------
+const INTERP = .12;
+function pushSnap(c, s) {
+  if (c.snaps.length && s.rt <= c.snaps.at(-1).rt) return;
+  c.snaps.push(s); if (c.snaps.length > 40) c.snaps.shift();
+  if (c.clock == null || Math.abs((s.rt - INTERP) - c.clock) > .6) c.clock = s.rt - INTERP;
+  Object.assign(c, { lap: s.lap, idx: s.idx, speed: s.sp });
+  if (s.done && !c.done) { c.done = true; c.finishTime = s.ft; maybeFinishOnline(); }
+}
+function remoteStep(c, dt) {
+  if (!c.snaps.length) return;
+  const last = c.snaps.at(-1);
+  c.clock += dt; c.clock += ((last.rt - INTERP) - c.clock) * .05; // follow the sender's clock, gently
+  let a = null, b = null;
+  for (let i = c.snaps.length - 1; i > 0; i--) if (c.snaps[i - 1].rt <= c.clock) { a = c.snaps[i - 1]; b = c.snaps[i]; break; }
+  if (a && c.clock <= b.rt) {
+    const k = (c.clock - a.rt) / Math.max(1e-3, b.rt - a.rt);
+    let d = b.a - a.a; d = Math.atan2(Math.sin(d), Math.cos(d));
+    c.x = a.x + (b.x - a.x) * k; c.y = a.y + (b.y - a.y) * k; c.a = a.a + d * k;
+  } else {
+    const e = Math.min(.25, Math.max(0, c.clock - last.rt));
+    c.x = last.x + last.vx * e; c.y = last.y + last.vy * e; c.a = last.a;
+  }
+  c.vx = last.vx; c.vy = last.vy;
+}
+
+// ---------- online: up to 4 drivers ----------
+// The host is the hub: every guest talks only to the host, and the host forwards everyone's positions to everyone.
+// Each guest first tries a direct browser-to-browser link (PeerJS/WebRTC). Between different home/school networks
+// that often can't connect, so after 7 s the guest falls back to a relay: a free public MQTT server over WebSockets.
+const net = {
+  peer: null, isHost: false, room: null, hostConn: null, hostProfile: null, guests: new Map(), roster: [],
+  lobby: { track: 'green', stake: 0 }, lastSend: 0, timer: null, usingRelay: false, states: new Map(),
+};
 const FORCE_RELAY = new URLSearchParams(location.search).has('relay');
 const RELAYS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 function loadScript(src, what) {
@@ -528,153 +606,241 @@ function loadScript(src, what) {
 const loadPeer = () => window.Peer ? Promise.resolve() : loadScript('https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', 'online library');
 const loadMqtt = () => window.mqtt ? Promise.resolve() : loadScript('https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js', 'backup connection library');
 
-const relay = { client: null, room: null, role: null, lastSeen: 0 };
-async function relayStart(room, role) {
+// --- relay transport ---
+const relay = { client: null, topic: null };
+const topicHost = room => `turboloop/${room}/h`, topicGuest = (room, id) => `turboloop/${room}/g/${id}`;
+async function relayStart(listenTopic) {
   await loadMqtt();
   for (const url of RELAYS) {
     try {
       await new Promise((res, rej) => {
         const c = mqtt.connect(url, { clientId: 'tl_' + Math.random().toString(16).slice(2, 12), connectTimeout: 7000, reconnectPeriod: 2000, clean: true });
         const fail = setTimeout(() => { c.end(true); rej(new Error('timeout')); }, 8000);
-        c.on('connect', () => c.subscribe(`turboloop/${room}/${role}`, { qos: 0 }, err => {
+        c.on('connect', () => c.subscribe(listenTopic, { qos: 0 }, err => {
           clearTimeout(fail); if (err) { c.end(true); return rej(err); }
-          relay.client = c; relay.room = room; relay.role = role; res();
+          relay.client = c; relay.topic = listenTopic; res();
         }));
-        c.on('message', (topic, payload) => { if (relay.client !== c) return; let m; try { m = JSON.parse(payload.toString()); } catch (e) { return; } onRelayMessage(m); });
+        c.on('message', (topic, payload) => { if (relay.client !== c) return; let m; try { m = JSON.parse(payload.toString()); } catch (e) { return; } onRelay(m); });
       });
       return;
-    } catch (e) { /* try the next relay */ }
+    } catch (e) { /* try the next relay server */ }
   }
   throw new Error('No backup server reachable');
 }
-function relaySend(m) { if (relay.client) relay.client.publish(`turboloop/${relay.room}/${relay.role === 'h' ? 'g' : 'h'}`, JSON.stringify(m)); }
-function relayStop() { try { relay.client && relay.client.end(true); } catch (e) {} Object.assign(relay, { client: null, room: null, role: null }); }
-function makeRelayConn() {
-  relay.lastSeen = performance.now();
-  return { relay: true, open: true, send: relaySend, close() { if (!this.open) return; this.open = false; try { relaySend({ t: 'bye' }); } catch (e) {} } };
+function relayStop() { const c = relay.client; relay.client = null; relay.topic = null; try { c && setTimeout(() => c.end(), 300); } catch (e) {} } // short delay lets a final 'bye' get out
+function relayConn(toTopic) {
+  const c = {
+    relay: true, open: true, lastSeen: performance.now(),
+    client: relay.client,
+    send(m) { const cl = relay.client || this.client; if (this.open && cl) cl.publish(toTopic, JSON.stringify(m)); },
+    close() { if (!this.open) return; try { this.send({ t: 'bye', id: ME }); } catch (e) {} this.open = false; },
+  };
+  return c;
 }
-function onRelayMessage(m) {
-  relay.lastSeen = performance.now();
-  if (!m || m.t === 'ping') return;
-  if (m.t === 'bye') { if (net.conn && net.conn.relay) { net.conn.open = false; onConnClosed(); } return; }
-  if (net.isHost && m.t === 'hello' && !(net.conn && net.conn.open && !net.conn.relay)) {
-    if (net.conn && !net.conn.relay) { const old = net.conn; net.conn = null; try { old.close(); } catch (e) {} }
-    if (!net.conn || !net.conn.open) net.conn = makeRelayConn();
-    send({ t: 'hello', profile: myProfile(), coins: save.coins });
+function onRelay(m) {
+  if (!m) return;
+  if (net.isHost) {
+    const id = m.id; if (!id) return;
+    let gst = net.guests.get(id);
+    if (!gst) {
+      if (m.t !== 'hello') return;
+      gst = addGuest(id, relayConn(topicGuest(net.room, id)));
+      if (!gst) return;
+    }
+    if (!gst.conn.relay) return; // this guest is on a direct link; ignore stray relay traffic
+    gst.conn.lastSeen = performance.now();
+    if (m.t === 'bye') return dropGuest(id);
+    if (m.t !== 'ping') fromGuest(id, m);
+  } else if (net.hostConn && net.hostConn.relay) {
+    net.hostConn.lastSeen = performance.now();
+    if (m.t === 'bye') return hostGone();
+    if (m.t !== 'ping') fromHost(m);
   }
-  if (net.conn && net.conn.relay && net.conn.open) onNet(m);
 }
-setInterval(() => {
-  if (!(net.conn && net.conn.relay && net.conn.open)) return;
-  relaySend({ t: 'ping' });
-  if (performance.now() - relay.lastSeen > 12000) { net.conn.open = false; onConnClosed(); }
+setInterval(() => { // keep-alive + timeout for relay links
+  const now = performance.now();
+  if (net.isHost) for (const [id, gst] of net.guests) {
+    if (!gst.conn.relay) continue;
+    gst.conn.send({ t: 'ping' });
+    if (now - gst.conn.lastSeen > 12000) dropGuest(id);
+  } else if (net.hostConn && net.hostConn.relay && net.hostConn.open) {
+    net.hostConn.send({ t: 'ping', id: ME });
+    if (now - net.hostConn.lastSeen > 12000) hostGone();
+  }
 }, 2000);
 
+// --- lobby / roster ---
 function setStatus(t) { $('netStatus').textContent = t; }
 function netReset() {
   clearTimeout(net.timer);
-  try { net.conn && net.conn.close(); } catch (e) {}
+  if (net.isHost) for (const [, gst] of net.guests) { try { gst.conn.send({ t: 'bye', id: ME }); gst.conn.close(); } catch (e) {} }
+  try { net.hostConn && net.hostConn.close(); } catch (e) {}
   try { net.peer && net.peer.destroy(); } catch (e) {}
   relayStop();
-  Object.assign(net, { peer: null, conn: null, isHost: false, remote: null, lobby: { track: 'green', stake: 0 }, timer: null, usingRelay: false });
+  Object.assign(net, { peer: null, isHost: false, room: null, hostConn: null, hostProfile: null, guests: new Map(), roster: [],
+    lobby: { track: 'green', stake: 0 }, timer: null, usingRelay: false, states: new Map() });
   $('onStart').style.display = ''; $('onRoom').style.display = 'none';
 }
+function hostEntry() { return { id: ME, profile: myProfile(), coins: save.coins, host: true }; }
+function buildRoster() { return [hostEntry()].concat([...net.guests.entries()].filter(([, g]) => g.profile).map(([id, g]) => ({ id, profile: g.profile, coins: g.coins }))); }
+function broadcastRoster() {
+  if (!net.isHost) return;
+  net.roster = buildRoster();
+  const m = { t: 'roster', players: net.roster, track: net.lobby.track, stake: net.lobby.stake };
+  for (const [, gst] of net.guests) gst.conn.send(m);
+  updateLobby();
+}
+function renderSlots() {
+  const box = $('slots'); if (!box) return;
+  const list = net.roster.length ? net.roster : (net.isHost || net.hostConn ? [] : null);
+  if (!list) { box.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const p = list[i];
+    html += p
+      ? `<div class="slot"><span class="dot" style="background:${p.profile.body}"></span>${escapeHtml(p.profile.name)}${p.id === ME ? '<span class="badge you">YOU</span>' : p.host ? '<span class="badge">HOST</span>' : ''}</div>`
+      : `<div class="slot empty"><span class="dot" style="background:transparent;border-style:dashed"></span>waiting for a driver…</div>`;
+  }
+  box.innerHTML = html;
+}
+const escapeHtml = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+function updateLobby() {
+  renderSlots();
+  const n = net.roster.length;
+  if (net.isHost) {
+    $('hostControls').style.display = '';
+    const others = n - 1;
+    setStatus(others ? `✅ ${others} friend${others > 1 ? 's' : ''} in the room. Pick a track and a bet, then go!` : 'Waiting for friends to join… (you can have up to 3)');
+    $('btnStartOnline').disabled = others < 1;
+    const maxBet = Math.min(...net.roster.map(p => p.coins));
+    $('selBet').innerHTML = [0, 25, 50, 100, 250].map(v => `<option value="${v}" ${v > maxBet ? 'disabled' : ''} ${v === net.lobby.stake ? 'selected' : ''}>${v ? v + ' coins' : 'No bet'}${v > maxBet ? ' (someone is short)' : ''}</option>`).join('');
+    if (net.lobby.stake > maxBet) { net.lobby.stake = 0; $('selBet').value = '0'; }
+    $('selTrack').value = net.lobby.track;
+  } else if (net.hostConn && n) {
+    setStatus(`✅ In the room with ${n - 1} other driver${n > 2 ? 's' : ''}. Waiting for the host to start…`);
+    $('guestInfo').style.display = '';
+    $('guestInfo').textContent = `Track: ${trackById(net.lobby.track).name} · Bet: ${net.lobby.stake ? net.lobby.stake + ' coins per driver (winner takes the pot)' : 'none'}`;
+  }
+}
+
+// --- host side ---
 async function hostRoom() {
   netReset(); $('onStart').style.display = 'none'; $('onRoom').style.display = ''; $('hostShare').style.display = '';
   $('hostControls').style.display = 'none'; $('guestInfo').style.display = 'none'; setStatus('Creating room…');
+  net.isHost = true; net.roster = [hostEntry()]; renderSlots();
   try { await loadPeer(); } catch (e) { setStatus(e.message); return; }
-  net.isHost = true; net.peer = new Peer();
+  net.peer = new Peer();
   net.peer.on('open', id => {
+    net.room = id;
     const base = location.protocol.startsWith('http') ? location.href.split('?')[0].split('#')[0] : 'https://tomato230.github.io/turbo-loop/';
-    $('shareLink').textContent = base + '?join=' + id; $('roomCode').textContent = id;
-    $('fileNote').style.display = location.protocol.startsWith('http') ? 'none' : '';
-    setStatus('Waiting for your friend to join…');
-    relayStart(id, 'h').catch(() => {}); // also listen on the backup relay, in case the direct link can't be made
+    $('shareLink').textContent = base + '?join=' + id; $('roomCode').textContent = id; $('fileNote').style.display = '';
+    relayStart(topicHost(id)).catch(() => {}); // also listen on the relay for guests whose direct link fails
+    updateLobby();
   });
-  net.peer.on('connection', c => { if (net.conn && net.conn.open) { c.close(); return; } setupConn(c); });
-  net.peer.on('error', e => { if (!net.remote) setStatus('Connection problem: ' + (e.type || e.message)); });
+  net.peer.on('connection', c => {
+    c.on('data', m => {
+      if (!m || !m.t) return;
+      if (m.t === 'hello' && !net.guests.has(m.id)) { if (!addGuest(m.id, c)) return; }
+      const gst = net.guests.get(m.id); if (!gst || gst.conn !== c) return;
+      fromGuest(m.id, m);
+    });
+    c.on('close', () => { for (const [id, gst] of net.guests) if (gst.conn === c) dropGuest(id); });
+  });
+  net.peer.on('error', e => { if (e.type !== 'peer-unavailable' && net.guests.size === 0) setStatus('Connection problem: ' + (e.type || e.message)); });
 }
+function addGuest(id, conn) {
+  if (net.guests.size >= MAX_PLAYERS - 1) { conn.send({ t: 'full' }); setTimeout(() => { try { conn.close(); } catch (e) {} }, 300); return null; }
+  const gst = { conn, profile: null, coins: 0 };
+  net.guests.set(id, gst);
+  return gst;
+}
+function dropGuest(id) {
+  const gst = net.guests.get(id); if (!gst) return;
+  net.guests.delete(id); try { gst.conn.close(); } catch (e) {}
+  const c = cars.find(x => x.id === id);
+  if (mode === 'online' && c && !c.done) { c.left = true; for (const [, o] of net.guests) o.conn.send({ t: 'left', id }); maybeFinishOnline(); }
+  broadcastRoster();
+}
+function fromGuest(id, m) {
+  const gst = net.guests.get(id);
+  if (m.t === 'hello') { gst.profile = m.profile; gst.coins = m.coins | 0; broadcastRoster(); }
+  else if (m.t === 's') { net.states.set(id, m); const c = cars.find(x => x.id === id); if (c && mode === 'online') pushSnap(c, m); }
+}
+function hostStart() {
+  if (!net.isHost || net.guests.size < 1) return;
+  const order = buildRoster().map(p => ({ id: p.id, profile: p.profile })).sort(() => Math.random() - .5);
+  const m = { t: 'start', track: net.lobby.track, stake: net.lobby.stake, order };
+  for (const [, gst] of net.guests) gst.conn.send(m);
+  net.states = new Map();
+  startRace({ mode: 'online', trackId: m.track, stake: m.stake, order });
+}
+
+// --- guest side ---
 async function joinRoom(raw) {
   const id = (raw.match(/join=([^&#\s]+)/) || [, raw.trim()])[1];
   if (!id) return;
-  netReset(); $('onStart').style.display = 'none'; $('onRoom').style.display = ''; $('hostShare').style.display = 'none';
-  $('hostControls').style.display = 'none'; $('guestInfo').style.display = ''; setStatus('Joining room…');
-  if (FORCE_RELAY) return useRelayAsGuest(id);
-  net.timer = setTimeout(() => useRelayAsGuest(id), 7000);
-  try { await loadPeer(); } catch (e) { return useRelayAsGuest(id); }
+  netReset(); net.room = id;
+  $('onStart').style.display = 'none'; $('onRoom').style.display = ''; $('hostShare').style.display = 'none';
+  $('hostControls').style.display = 'none'; $('guestInfo').style.display = 'none'; setStatus('Joining room…'); renderSlots();
+  if (FORCE_RELAY) return useRelayAsGuest();
+  net.timer = setTimeout(useRelayAsGuest, 7000);
+  try { await loadPeer(); } catch (e) { return useRelayAsGuest(); }
   if (net.usingRelay) return;
   net.peer = new Peer();
-  net.peer.on('open', () => { if (!net.usingRelay) setupConn(net.peer.connect(id, { reliable: true })); });
+  net.peer.on('open', () => {
+    if (net.usingRelay) return;
+    const c = net.peer.connect(id, { reliable: true });
+    c.on('open', () => {
+      if (net.usingRelay) { c.close(); return; }
+      clearTimeout(net.timer); net.hostConn = c;
+      c.send({ t: 'hello', id: ME, profile: myProfile(), coins: save.coins });
+    });
+    c.on('data', m => { if (net.hostConn === c) fromHost(m); });
+    c.on('close', () => { if (net.hostConn === c) hostGone(); });
+  });
   net.peer.on('error', e => {
     if (e.type === 'peer-unavailable') { clearTimeout(net.timer); setStatus('Room not found. Ask your friend for a new link.'); }
-    else useRelayAsGuest(id);
+    else useRelayAsGuest();
   });
 }
-async function useRelayAsGuest(id) {
-  if ((net.conn && net.conn.open) || net.usingRelay) return;
+async function useRelayAsGuest() {
+  if (net.hostConn || net.usingRelay || !net.room) return;
   net.usingRelay = true; clearTimeout(net.timer);
-  setStatus('Direct connection blocked by the network. Trying the backup connection…');
-  const old = net.conn; net.conn = null; try { old && old.close(); } catch (e) {}
-  try { await relayStart(id, 'g'); } catch (e) { setStatus('Could not connect. Try a different Wi-Fi or a phone hotspot.'); return; }
-  net.conn = makeRelayConn();
-  send({ t: 'hello', profile: myProfile(), coins: save.coins });
-  setStatus('Connected to the backup server. Waiting for the host…');
+  setStatus('Direct connection blocked by the network. Using the backup connection…');
+  try { await relayStart(topicGuest(net.room, ME)); } catch (e) { setStatus('Could not connect. Try a different Wi-Fi or a phone hotspot.'); return; }
+  net.hostConn = relayConn(topicHost(net.room));
+  net.hostConn.send({ t: 'hello', id: ME, profile: myProfile(), coins: save.coins });
+  setStatus('Reached the backup server. Waiting for the host…');
 }
-function setupConn(c) {
-  net.conn = c;
-  c.on('open', () => { if (net.conn !== c) return; clearTimeout(net.timer); send({ t: 'hello', profile: myProfile(), coins: save.coins }); });
-  c.on('data', m => { if (net.conn === c) onNet(m); });
-  c.on('close', () => { if (net.conn === c) onConnClosed(); });
-}
-function onConnClosed() {
-  net.conn = null;
-  const them = cars.find(x => x.remote);
-  if (mode === 'online' && them && !them.done && (state === 'race' || state === 'countdown' || state === 'finished')) { them.left = true; maybeFinishOnline(); }
-  net.remote = null; setStatus('Your friend left the room.'); updateLobby();
-}
-function send(m) { if (net.conn && net.conn.open) net.conn.send(m); }
-function onNet(m) {
+function fromHost(m) {
   if (!m || !m.t) return;
-  if (m.t === 'hello') { net.remote = Object.assign({}, m.profile, { coins: m.coins | 0 }); if (net.isHost) sendLobby(); updateLobby(); }
-  else if (m.t === 'lobby') { net.lobby = { track: m.track, stake: m.stake }; updateLobby(); }
-  else if (m.t === 'start') startRace({ mode: 'online', trackId: m.track, stake: m.stake, slot: 1 });
-  else if (m.t === 's') {
-    const c = cars.find(x => x.remote); if (!c || mode !== 'online') return;
-    Object.assign(c, { tx: m.x, ty: m.y, ta: m.a, vx: m.vx, vy: m.vy, speed: m.sp, lap: m.lap, idx: m.idx });
-    if (m.done && !c.done) { c.done = true; c.finishTime = m.ft; maybeFinishOnline(); }
-  }
+  if (m.t === 'full') { setStatus('This room is full (4 drivers max).'); net.hostConn = null; return; }
+  if (m.t === 'roster') { net.roster = m.players; net.lobby = { track: m.track, stake: m.stake }; updateLobby(); }
+  else if (m.t === 'start') { net.lobby = { track: m.track, stake: m.stake }; startRace({ mode: 'online', trackId: m.track, stake: m.stake, order: m.order }); }
+  else if (m.t === 'ss') {
+    if (mode !== 'online') return;
+    for (const s of m.states) { if (s.id === ME) continue; const c = cars.find(x => x.id === s.id); if (c) pushSnap(c, s); }
+  } else if (m.t === 'left') { const c = cars.find(x => x.id === m.id); if (c && !c.done) { c.left = true; maybeFinishOnline(); } }
 }
-function sendLobby() { send({ t: 'lobby', track: net.lobby.track, stake: net.lobby.stake }); }
+function hostGone() {
+  const had = net.hostConn; net.hostConn = null;
+  if (!had) return;
+  if (mode === 'online' && state !== 'menu') cars.forEach(c => { if (c.remote && !c.done) c.left = true; });
+  if (mode === 'online' && cars[0] && cars[0].done) maybeFinishOnline(true);
+  net.roster = []; setStatus('The host left the room.'); renderSlots();
+}
+
+// --- race traffic ---
 function sendState(force) {
   const now = performance.now();
   if (!force && now - net.lastSend < 50) return;
   net.lastSend = now; const c = cars[0];
-  send({ t: 's', x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime });
-}
-function remoteStep(c, dt) {
-  c.tx += c.vx * dt; c.ty += c.vy * dt;
-  const k = Math.min(1, dt * 12);
-  c.x += (c.tx - c.x) * k; c.y += (c.ty - c.y) * k;
-  let d = c.ta - c.a; d = Math.atan2(Math.sin(d), Math.cos(d)); c.a += d * k;
-}
-function hostStart() {
-  if (!net.conn || !net.remote) return;
-  send({ t: 'start', track: net.lobby.track, stake: net.lobby.stake });
-  startRace({ mode: 'online', trackId: net.lobby.track, stake: net.lobby.stake, slot: 0 });
-}
-function updateLobby() {
-  const r = net.remote;
+  const s = { t: 's', id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime };
   if (net.isHost) {
-    $('hostControls').style.display = r ? '' : 'none';
-    if (r) {
-      setStatus(`✅ ${r.name} joined! Pick a track and a bet, then start.`);
-      const maxBet = Math.min(save.coins, r.coins);
-      $('selBet').innerHTML = [0, 25, 50, 100, 250].map(v => `<option value="${v}" ${v > maxBet ? 'disabled' : ''} ${v === net.lobby.stake ? 'selected' : ''}>${v ? v + ' coins' : 'No bet'}${v > maxBet ? ' (not enough coins)' : ''}</option>`).join('');
-    }
-  } else if (r) {
-    setStatus(`✅ Connected to ${r.name}. Waiting for them to start the race…`);
-    $('guestInfo').textContent = `Track: ${trackById(net.lobby.track).name} · Bet: ${net.lobby.stake ? net.lobby.stake + ' coins' : 'none'}`;
-  }
+    net.states.set(ME, s);
+    const all = [...net.states.values()];
+    for (const [, gst] of net.guests) gst.conn.send({ t: 'ss', states: all });
+  } else if (net.hostConn) net.hostConn.send(s);
 }
 
 // ---------- drawing ----------
@@ -707,75 +873,120 @@ function drawCarShape(x, c) {
   x.fillStyle = 'rgba(255,255,255,.35)'; x.fillRect(c.style === 'muscle' ? -2 : 2, -6, 3, 12);
   x.fillStyle = '#fff7c2'; x.fillRect(19, -9, 3, 4); x.fillRect(19, 5, 3, 4);
 }
+
 function drawCar(c) {
   g.save(); g.translate(c.x, c.y); g.rotate(c.a);
   if (TR.theme.night) {
     const gr = g.createLinearGradient(20, 0, 170, 0); gr.addColorStop(0, 'rgba(255,245,200,.35)'); gr.addColorStop(1, 'rgba(255,245,200,0)');
     g.fillStyle = gr; g.beginPath(); g.moveTo(20, -8); g.lineTo(170, -60); g.lineTo(170, 60); g.lineTo(20, 8); g.closePath(); g.fill();
   }
-  if (c.remote) g.globalAlpha = .85;
+  if (c.remote) g.globalAlpha = .88;
   drawCarShape(g, c);
   g.restore();
   if (!c.local) {
-    g.font = `bold 13px ${FONT}`; g.textAlign = 'center'; g.fillStyle = 'rgba(0,0,0,.5)';
-    g.fillText(c.name, c.x + 1, c.y - 25); g.fillStyle = '#fff'; g.fillText(c.name, c.x, c.y - 26);
+    g.font = `700 14px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    const w = g.measureText(c.name).width + 12;
+    g.fillStyle = 'rgba(10,12,18,.7)'; g.fillRect(c.x - w / 2, c.y - 44, w, 20);
+    g.fillStyle = c.body; g.fillRect(c.x - w / 2, c.y - 44, 3, 20);
+    g.fillStyle = '#fff'; g.fillText(c.name, c.x + 1, c.y - 29);
   }
 }
-function panel(x, y, w, h) { g.fillStyle = 'rgba(12,16,24,.72)'; g.beginPath(); g.roundRect(x, y, w, h, 14); g.fill(); }
-function text(s, x, y, size, color, align) {
-  g.font = `bold ${size}px ${FONT}`; g.textAlign = align || 'left'; g.textBaseline = 'middle'; g.fillStyle = color || '#fff'; g.fillText(s, x, y);
+// slanted HUD panel
+function slab(x, y, w, h, accent) {
+  const s = h * .18;
+  g.fillStyle = 'rgba(12,15,22,.82)';
+  g.beginPath(); g.moveTo(x + s, y); g.lineTo(x + w, y); g.lineTo(x + w - s, y + h); g.lineTo(x, y + h); g.closePath(); g.fill();
+  if (accent) { g.fillStyle = accent; g.beginPath(); g.moveTo(x + s, y); g.lineTo(x + s + 5, y); g.lineTo(x + 5, y + h); g.lineTo(x, y + h); g.closePath(); g.fill(); }
+}
+function text(s, x, y, size, color, align, font) {
+  g.font = font === 'd' ? `${size}px ${DFONT}` : `700 ${size}px ${FONT}`;
+  g.textAlign = align || 'left'; g.textBaseline = 'middle'; g.fillStyle = color || '#fff'; g.fillText(s, x, y);
 }
 function drawHUD() {
-  const me = cars[0], pos = [...cars].sort((a, b) => progress(b) - progress(a)).indexOf(me) + 1;
-  panel(16, 16, 250, 128);
-  text(ordinal(pos), 34, 52, 40, '#ffd23f');
-  text(`/ ${cars.length}`, 34 + g.measureText(ordinal(pos)).width + 8, 58, 20, 'rgba(255,255,255,.7)');
-  text(`LAP ${Math.max(1, Math.min(me.lap, LAPS))} / ${LAPS}`, 34, 92, 20);
-  text(`${TR.name}${stake ? ` · bet ${stake}` : ''}`, 34, 120, 14, 'rgba(255,255,255,.75)');
-  panel(16, H - 104, 200, 88);
-  text(`${Math.round(Math.abs(me.speed || 0) * .4)}`, 34, H - 64, 44);
-  text('km/h', 140, H - 56, 16, 'rgba(255,255,255,.7)');
-  text(me.off ? 'OFF TRACK' : '', 34, H - 30, 14, '#ff8a80');
-  panel(W - 226, H - 104, 210, 88);
-  text(`Lap   ${fmt(me.lap >= 1 && !me.done ? raceTime - me.lapStart : null)}`, W - 208, H - 76, 16);
-  text(`Last  ${fmt(me.laps.at(-1))}`, W - 208, H - 52, 16, 'rgba(255,255,255,.8)');
-  text(`Best  ${fmt(save.best[TR.id])}`, W - 208, H - 28, 16, '#ffd23f');
+  const me = cars[0], order = [...cars].sort((a, b) => progress(b) - progress(a)), pos = order.indexOf(me) + 1;
+  // position + laps
+  slab(16, 16, 250, 104, '#ffcc00');
+  text(ordinal(pos).toUpperCase(), 40, 56, 46, '#ffcc00', 'left', 'd');
+  text(`/ ${cars.length}`, 44 + g.measureText(ordinal(pos).toUpperCase()).width, 64, 20, 'rgba(255,255,255,.6)');
+  const lap = Math.max(1, Math.min(me.lap, LAPS));
+  text(`LAP ${lap}/${LAPS}`, 180, 44, 15, '#fff', 'left');
+  for (let i = 0; i < LAPS; i++) { g.fillStyle = i < me.lap - 1 || me.done ? '#ffcc00' : i === lap - 1 ? 'rgba(255,204,0,.45)' : 'rgba(255,255,255,.15)'; g.fillRect(180 + i * 22, 56, 18, 6); }
+  text(`${TR.name}${stake ? ` · bet ${stake}` : ''}`, 40, 100, 13, 'rgba(255,255,255,.6)');
+  // live standings (online / solo)
+  order.forEach((c, i) => {
+    const y = 138 + i * 26; slab(16, y, 190, 22, c.body);
+    text(`${i + 1}`, 34, y + 11, 13, '#ffcc00', 'left', 'd');
+    text(c.local ? `${c.name} (you)` : c.name, 54, y + 11, 13, c.local ? '#fff' : 'rgba(255,255,255,.8)');
+    if (c.done) text('FIN', 196, y + 11, 11, '#2ec4b6', 'right', 'd');
+  });
+  // speedometer
+  const sp = Math.abs(me.speed || 0), cx = 96, cy = H - 90, r = 56, a0 = Math.PI * .8, a1 = Math.PI * 2.2;
+  g.fillStyle = 'rgba(12,15,22,.82)'; g.beginPath(); g.arc(cx, cy, r + 14, 0, 7); g.fill();
+  g.lineCap = 'round'; g.lineWidth = 9;
+  g.strokeStyle = 'rgba(255,255,255,.12)'; g.beginPath(); g.arc(cx, cy, r, a0, a1); g.stroke();
+  const f = Math.min(1, sp / MAX); g.strokeStyle = f > .85 ? '#e63946' : '#ffcc00'; g.beginPath(); g.arc(cx, cy, r, a0, a0 + (a1 - a0) * f); g.stroke();
+  text(`${Math.round(sp * .4)}`, cx, cy - 4, 30, '#fff', 'center', 'd');
+  text('KM/H', cx, cy + 22, 11, 'rgba(255,255,255,.6)', 'center');
+  if (me.off) text('OFF TRACK', cx, cy + 50, 12, '#ff8a80', 'center');
+  // lap times
+  slab(W - 236, H - 104, 220, 88, '#2ec4b6');
+  text('LAP', W - 212, H - 80, 12, 'rgba(255,255,255,.55)'); text(fmt(me.lap >= 1 && !me.done ? raceTime - me.lapStart : null), W - 32, H - 80, 18, '#fff', 'right', 'd');
+  text('LAST', W - 216, H - 58, 12, 'rgba(255,255,255,.55)'); text(fmt(me.laps.at(-1)), W - 36, H - 58, 16, 'rgba(255,255,255,.85)', 'right', 'd');
+  text('BEST', W - 220, H - 36, 12, 'rgba(255,255,255,.55)'); text(fmt(save.best[TR.id]), W - 40, H - 36, 16, '#ffcc00', 'right', 'd');
+  // minimap
   g.drawImage(TR.mini, W - 226, 16);
   for (const c of [...cars].reverse()) {
     g.fillStyle = c.body; g.beginPath(); g.arc(W - 226 + 10 + c.x * TR.mmScale, 26 + c.y * TR.mmScale, c.local ? 6.5 : 4.5, 0, 7); g.fill();
     g.lineWidth = 1.5; g.strokeStyle = '#000'; g.stroke();
   }
-  text(mode === 'solo' ? 'P pause · M sound · R restart · Q menu' : 'M sound · Q leave race', W - 16, H - 118, 12, 'rgba(255,255,255,.55)', 'right');
+  text(mode === 'solo' ? 'P pause · R respawn (from the grass) · M sound · Q menu' : 'R respawn (from the grass) · M sound · Q leave race', W - 16, H - 118, 12, 'rgba(255,255,255,.45)', 'right');
 }
 function overlay(a) { g.fillStyle = `rgba(8,10,16,${a})`; g.fillRect(0, 0, W, H); }
+const WIN_LINES = ['CHAMPION!', 'UNSTOPPABLE!', 'FLAWLESS!'], LOSE_LINES = {
+  2: ['SO CLOSE!', 'Silver never looked this shiny.'], 3: ['ON THE PODIUM!', 'Bronze counts. Kind of.'], 4: ['OUCH.', 'They left you in the dust 💨'],
+};
+function drawStartLights() {
+  const lit = Math.min(3, Math.floor(tState) + 1), go = tState >= 3, w = 3 * 70 + 30, x0 = W / 2 - w / 2, y = Math.max(90, H * .2);
+  g.fillStyle = 'rgba(12,15,22,.9)'; g.beginPath(); g.roundRect(x0, y, w, 90, 10); g.fill();
+  for (let i = 0; i < 3; i++) {
+    const cx = x0 + 50 + i * 70, on = i < lit;
+    g.fillStyle = go ? '#2ec4b6' : on ? '#e63946' : '#2a303c';
+    if (on || go) { g.shadowColor = g.fillStyle; g.shadowBlur = 25; }
+    g.beginPath(); g.arc(cx, y + 45, 24, 0, 7); g.fill(); g.shadowBlur = 0;
+  }
+}
 function drawScreens() {
-  if (state === 'countdown') {
-    const n = 3 - Math.floor(tState), k = tState % 1;
-    g.save(); g.globalAlpha = 1 - k * .6; text(n > 0 ? String(n) : 'GO!', W / 2, H / 2 - 60, 120 + k * 40, n > 0 ? '#fff' : '#3bceac', 'center'); g.restore();
+  if (state === 'countdown') drawStartLights();
+  if (state === 'race' && tState < .9) {
+    g.save(); g.globalAlpha = 1 - tState / .9; text('GO GO GO!', W / 2, H * .32, 90, '#2ec4b6', 'center', 'd'); g.restore();
   }
-  if (state === 'race' && tState < .8) { g.save(); g.globalAlpha = 1 - tState / .8; text('GO!', W / 2, H / 2 - 60, 160, '#3bceac', 'center'); g.restore(); }
   if (state === 'race' && !cars[0].done && cars[0].wrongT > .6 && Math.floor(performance.now() / 300) % 2) {
-    panel(W / 2 - 160, H / 2 - 150, 320, 70); text('⚠ WRONG WAY', W / 2, H / 2 - 115, 36, '#ff5252', 'center');
+    slab(W / 2 - 170, H / 2 - 150, 340, 70, '#e63946'); text('⚠ WRONG WAY', W / 2, H / 2 - 115, 34, '#ff5252', 'center', 'd');
   }
-  if (state === 'race' && cars[0].done && mode === 'online') { panel(W / 2 - 200, 20, 400, 50); text('Finished! Waiting for your friend…', W / 2, 45, 18, '#fff', 'center'); }
-  if (state === 'paused') { overlay(.5); text('PAUSED', W / 2, H / 2, 64, '#fff', 'center'); text('P continue · R restart · Q menu', W / 2, H / 2 + 56, 18, '#fff', 'center'); }
+  if (state === 'race' && !cars[0].done && (cars[0].dist || 0) > RESPAWN_DIST) {
+    slab(W / 2 - 200, H - 92, 400, 50, '#ffcc00'); text('Lost in the grass? Press R to get back', W / 2, H - 67, 18, '#fff', 'center');
+  }
+  if (state === 'race' && cars[0].done && mode === 'online') { slab(W / 2 - 220, 20, 440, 50, '#2ec4b6'); text(`Finished! Waiting for the others… ${Math.max(0, 45 - Math.floor(finishWait))}s`, W / 2, 45, 17, '#fff', 'center'); }
+  if (state === 'paused') { overlay(.55); text('PAUSED', W / 2, H / 2, 70, '#fff', 'center', 'd'); text('P continue · R restart · Q menu', W / 2, H / 2 + 56, 18, '#fff', 'center'); }
   if (state === 'finished') {
-    overlay(Math.min(.6, tState));
-    const me = cars[0], place = results.indexOf(me) + 1, top = Math.max(20, H / 2 - 190);
-    text(place === 1 ? 'YOU WIN! 🏆' : `You finished ${ordinal(place)}`, W / 2, top + 20, 54, place === 1 ? '#ffd23f' : '#fff', 'center');
-    panel(W / 2 - 220, top + 60, 440, 40 + results.length * 36);
+    overlay(Math.min(.65, tState * 1.2));
+    const me = cars[0], place = results.indexOf(me) + 1, top = Math.max(20, H / 2 - 210);
+    const [head, sub] = place === 1 ? [WIN_LINES[Math.floor(raceTime) % 3], 'You crossed the line first 🏆'] : LOSE_LINES[Math.min(place, 4)];
+    text(head, W / 2, top + 24, 60, place === 1 ? '#ffcc00' : '#fff', 'center', 'd');
+    text(sub, W / 2, top + 70, 20, 'rgba(255,255,255,.8)', 'center');
+    const medals = ['🥇', '🥈', '🥉', ''];
     results.forEach((c, i) => {
-      const y = top + 90 + i * 36;
-      text(`${i + 1}.`, W / 2 - 190, y, 20, '#fff');
-      g.fillStyle = c.body; g.beginPath(); g.arc(W / 2 - 145, y, 8, 0, 7); g.fill();
-      text(c.name, W / 2 - 125, y, 20, c.local ? '#ffd23f' : '#fff');
-      text(c.done ? fmt(c.finishTime) : c.left ? 'left' : 'racing…', W / 2 + 190, y, 20, 'rgba(255,255,255,.85)', 'right');
+      const y = top + 110 + i * 44;
+      slab(W / 2 - 240, y, 480, 38, c.body);
+      text(medals[i] || `${i + 1}.`, W / 2 - 210, y + 19, 22, '#fff', 'left');
+      text(c.local ? `${c.name} (you)` : c.name, W / 2 - 170, y + 19, 20, c.local ? '#ffcc00' : '#fff');
+      text(c.done ? fmt(c.finishTime) : c.left ? 'DNF' : 'racing…', W / 2 + 200, y + 19, 20, 'rgba(255,255,255,.9)', 'right', 'd');
     });
-    let y = top + 120 + results.length * 36;
-    text(`Best lap ${fmt(Math.min(...me.laps))}${newBest ? '  · NEW RECORD!' : ''}`, W / 2, y, 18, '#ffd23f', 'center');
-    text(`🪙 ${coinDelta >= 0 ? '+' : ''}${coinDelta} coins (${coinNotes.join(', ')}) · total ${save.coins}`, W / 2, y + 32, 18, '#fff', 'center');
-    const hint = mode === 'solo' ? 'ENTER race again · Q menu' : net.isHost ? (net.conn ? 'ENTER rematch · Q back to lobby' : 'Q back to lobby') : 'Waiting for a rematch… · Q back to lobby';
-    text(hint, W / 2, y + 76, 20, '#fff', 'center');
+    const y = top + 130 + results.length * 44;
+    text(`Best lap ${fmt(Math.min(...me.laps))}${newBest ? '  ·  NEW RECORD!' : ''}`, W / 2, y, 18, '#ffcc00', 'center');
+    text(`🪙 ${coinDelta >= 0 ? '+' : ''}${coinDelta} coins  (${coinNotes.join(', ')})  ·  total ${save.coins}`, W / 2, y + 32, 18, '#fff', 'center');
+    const hint = mode === 'solo' ? 'ENTER race again  ·  Q menu' : net.isHost ? (net.guests.size ? 'ENTER rematch  ·  Q back to lobby' : 'Q back to lobby') : 'Waiting for the host to start a rematch…  ·  Q back to lobby';
+    text(hint, W / 2, y + 78, 19, '#fff', 'center');
   }
 }
 function render() {
@@ -798,18 +1009,20 @@ function render() {
 
 // ---------- menus ----------
 const SCREENS = ['scrMenu', 'scrTracks', 'scrGarage', 'scrOnline'];
+const TAGLINES = ['Brakes are optional.', 'Drift now, apologize later.', 'Pedal to the metal.', 'Second place is the first loser.', 'Corners are just suggestions.', 'Fuel: attitude.'];
 function showScreen(id) {
   SCREENS.forEach(s => $(s).classList.toggle('on', s === id));
   if (id) state = 'menu';
+  if (id === 'scrMenu') { $('tagline').textContent = TAGLINES[Math.floor(Math.random() * TAGLINES.length)]; $('helloName').textContent = `Driver: ${save.name}`; }
   if (id === 'scrTracks') renderTrackList();
   if (id === 'scrGarage') renderGarage();
+  if (id === 'scrOnline') renderSlots();
   refreshCoins();
 }
 function toMenu() {
-  if (mode === 'online' && net.conn) { showScreen('scrOnline'); updateLobby(); }
-  else if (mode === 'online') { netReset(); showScreen('scrMenu'); }
-  else showScreen('scrMenu');
   cars = [];
+  if (mode === 'online' && (net.isHost || net.hostConn)) { showScreen('scrOnline'); updateLobby(); }
+  else { if (mode === 'online') netReset(); showScreen('scrMenu'); }
 }
 function refreshCoins() { document.querySelectorAll('.coinCount').forEach(e => e.textContent = save.coins); }
 document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => showScreen(b.dataset.go)));
@@ -817,7 +1030,7 @@ document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', 
 function trackCard(t, sel) {
   const d = document.createElement('div'); d.className = 'track' + (sel ? ' sel' : '');
   const c = document.createElement('canvas'); c.width = 210; c.height = 158;
-  const x = c.getContext('2d'); x.fillStyle = t.theme.grass; x.beginPath(); x.roundRect(0, 0, 210, 158, 12); x.fill(); x.drawImage(t.mini, 0, 0);
+  const x = c.getContext('2d'); x.fillStyle = t.theme.grass; x.fillRect(0, 0, 210, 158); x.drawImage(t.mini, 0, 0);
   d.appendChild(c);
   d.insertAdjacentHTML('beforeend', `<b>${t.name}</b><span class="small">${t.desc}<br>Best lap: ${fmt(save.best[t.id])}</span>`);
   return d;
@@ -850,7 +1063,7 @@ function pick(id, kind) {
   if (owns(id)) { save[kind] = id; pendingBuy = null; persist(); renderGarage(); return; }
   pendingBuy = { id, kind };
   const price = priceOf(id), can = save.coins >= price;
-  $('buyText').textContent = can ? `Unlock ${id} for 🪙 ${price}?` : `${id} costs 🪙 ${price}. You have ${save.coins}. Win races to earn more!`;
+  $('buyText').textContent = can ? `Unlock ${id} for 🪙 ${price}?` : `${id} costs 🪙 ${price} — you have ${save.coins}. Win some races!`;
   $('btnBuy').disabled = !can; renderGarage();
 }
 $('btnBuy').onclick = () => {
@@ -860,31 +1073,30 @@ $('btnBuy').onclick = () => {
 };
 $('inName').oninput = e => { save.name = e.target.value.trim().slice(0, 10) || 'YOU'; persist(); };
 $('inStripe').onchange = e => { save.stripe = e.target.checked; persist(); };
-
 function drawPreview() {
   const pc = $('preview'), x = pc.getContext('2d'), p = myProfile();
-  x.fillStyle = '#3f8f3a'; x.fillRect(0, 0, pc.width, pc.height);
-  x.fillStyle = '#4a4e57'; x.fillRect(0, 40, pc.width, 70);
-  x.save(); x.translate(pc.width / 2, pc.height / 2); x.scale(2.6, 2.6); x.rotate(Math.sin(performance.now() / 900) * .25);
+  const gr = x.createLinearGradient(0, 0, 0, pc.height); gr.addColorStop(0, '#1d2432'); gr.addColorStop(1, '#0f131b');
+  x.fillStyle = gr; x.fillRect(0, 0, pc.width, pc.height);
+  x.fillStyle = 'rgba(255,204,0,.08)'; for (let i = 0; i < 12; i++) x.fillRect(i * 50 - ((performance.now() / 8) % 50), 108, 26, 4);
+  x.save(); x.translate(pc.width / 2, pc.height / 2 + 6); x.scale(2.7, 2.7); x.rotate(Math.sin(performance.now() / 900) * .22);
   drawCarShape(x, { body: p.body, style: p.style, stripe: p.stripeOn ? stripeFor(p.body) : null });
   x.restore();
-  x.font = `bold 18px ${FONT}`; x.fillStyle = '#fff'; x.textAlign = 'center'; x.fillText(save.name || 'YOU', pc.width / 2, 28);
+  x.font = `24px ${DFONT}`; x.fillStyle = '#fff'; x.textAlign = 'center'; x.fillText(save.name || 'YOU', pc.width / 2, 32);
 }
 
-// online lobby buttons
 $('btnHost').onclick = hostRoom;
 $('btnJoin').onclick = () => joinRoom($('inJoin').value);
-$('btnCopy').onclick = () => { try { navigator.clipboard.writeText($('shareLink').textContent); $('btnCopy').textContent = 'Copied!'; setTimeout(() => $('btnCopy').textContent = 'Copy link', 1500); } catch (e) {} };
+$('btnCopy').onclick = () => { try { navigator.clipboard.writeText($('shareLink').textContent); $('btnCopy').firstElementChild.textContent = '✅ Copied!'; setTimeout(() => $('btnCopy').firstElementChild.textContent = '📋 Copy link', 1500); } catch (e) {} };
 $('btnLeave').onclick = () => { netReset(); showScreen('scrMenu'); };
 $('btnStartOnline').onclick = hostStart;
 $('selTrack').innerHTML = TRACKS.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-$('selTrack').onchange = e => { net.lobby.track = e.target.value; sendLobby(); };
-$('selBet').onchange = e => { net.lobby.stake = +e.target.value; sendLobby(); };
+$('selTrack').onchange = e => { net.lobby.track = e.target.value; broadcastRoster(); };
+$('selBet').onchange = e => { net.lobby.stake = +e.target.value; broadcastRoster(); };
 
 // ---------- main loop ----------
 let last = performance.now();
 function loop(now) {
-  const dt = Math.min(1 / 30, (now - last) / 1000); last = now;
+  const dt = Math.min(1 / 20, (now - last) / 1000); last = now;
   if (window.innerWidth !== W || window.innerHeight !== H) resize();
   if (state !== 'paused' && state !== 'menu') update(dt);
   if (state === 'menu' && $('scrGarage').classList.contains('on')) drawPreview();
