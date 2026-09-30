@@ -510,22 +510,71 @@ function update(dt) {
   }
 }
 
-// ---------- online (PeerJS: direct browser-to-browser, free public broker) ----------
-const net = { peer: null, conn: null, isHost: false, remote: null, lobby: { track: 'green', stake: 0 }, lastSend: 0 };
-function loadPeer() {
+// ---------- online ----------
+// First try a direct browser-to-browser link (PeerJS / WebRTC). Between different home or school networks that
+// often can't connect, so after a few seconds we fall back to a relay: a free public MQTT server over WebSockets.
+const net = { peer: null, conn: null, isHost: false, remote: null, lobby: { track: 'green', stake: 0 }, lastSend: 0, timer: null, usingRelay: false };
+const FORCE_RELAY = new URLSearchParams(location.search).has('relay');
+const RELAYS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+function loadScript(src, what) {
   return new Promise((res, rej) => {
-    if (window.Peer) return res();
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
-    s.onload = res; s.onerror = () => rej(new Error('Could not load the online library. Are you connected to the internet?'));
+    const s = document.createElement('script'); s.src = src; s.onload = res;
+    s.onerror = () => rej(new Error(`Could not load the ${what}. Are you connected to the internet?`));
     document.head.appendChild(s);
   });
 }
+const loadPeer = () => window.Peer ? Promise.resolve() : loadScript('https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', 'online library');
+const loadMqtt = () => window.mqtt ? Promise.resolve() : loadScript('https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js', 'backup connection library');
+
+const relay = { client: null, room: null, role: null, lastSeen: 0 };
+async function relayStart(room, role) {
+  await loadMqtt();
+  for (const url of RELAYS) {
+    try {
+      await new Promise((res, rej) => {
+        const c = mqtt.connect(url, { clientId: 'tl_' + Math.random().toString(16).slice(2, 12), connectTimeout: 7000, reconnectPeriod: 2000, clean: true });
+        const fail = setTimeout(() => { c.end(true); rej(new Error('timeout')); }, 8000);
+        c.on('connect', () => c.subscribe(`turboloop/${room}/${role}`, { qos: 0 }, err => {
+          clearTimeout(fail); if (err) { c.end(true); return rej(err); }
+          relay.client = c; relay.room = room; relay.role = role; res();
+        }));
+        c.on('message', (topic, payload) => { if (relay.client !== c) return; let m; try { m = JSON.parse(payload.toString()); } catch (e) { return; } onRelayMessage(m); });
+      });
+      return;
+    } catch (e) { /* try the next relay */ }
+  }
+  throw new Error('No backup server reachable');
+}
+function relaySend(m) { if (relay.client) relay.client.publish(`turboloop/${relay.room}/${relay.role === 'h' ? 'g' : 'h'}`, JSON.stringify(m)); }
+function relayStop() { try { relay.client && relay.client.end(true); } catch (e) {} Object.assign(relay, { client: null, room: null, role: null }); }
+function makeRelayConn() {
+  relay.lastSeen = performance.now();
+  return { relay: true, open: true, send: relaySend, close() { if (!this.open) return; this.open = false; try { relaySend({ t: 'bye' }); } catch (e) {} } };
+}
+function onRelayMessage(m) {
+  relay.lastSeen = performance.now();
+  if (!m || m.t === 'ping') return;
+  if (m.t === 'bye') { if (net.conn && net.conn.relay) { net.conn.open = false; onConnClosed(); } return; }
+  if (net.isHost && m.t === 'hello' && !(net.conn && net.conn.open && !net.conn.relay)) {
+    if (net.conn && !net.conn.relay) { const old = net.conn; net.conn = null; try { old.close(); } catch (e) {} }
+    if (!net.conn || !net.conn.open) net.conn = makeRelayConn();
+    send({ t: 'hello', profile: myProfile(), coins: save.coins });
+  }
+  if (net.conn && net.conn.relay && net.conn.open) onNet(m);
+}
+setInterval(() => {
+  if (!(net.conn && net.conn.relay && net.conn.open)) return;
+  relaySend({ t: 'ping' });
+  if (performance.now() - relay.lastSeen > 12000) { net.conn.open = false; onConnClosed(); }
+}, 2000);
+
 function setStatus(t) { $('netStatus').textContent = t; }
 function netReset() {
+  clearTimeout(net.timer);
   try { net.conn && net.conn.close(); } catch (e) {}
   try { net.peer && net.peer.destroy(); } catch (e) {}
-  Object.assign(net, { peer: null, conn: null, isHost: false, remote: null, lobby: { track: 'green', stake: 0 } });
+  relayStop();
+  Object.assign(net, { peer: null, conn: null, isHost: false, remote: null, lobby: { track: 'green', stake: 0 }, timer: null, usingRelay: false });
   $('onStart').style.display = ''; $('onRoom').style.display = 'none';
 }
 async function hostRoom() {
@@ -538,30 +587,47 @@ async function hostRoom() {
     $('shareLink').textContent = base + '?join=' + id; $('roomCode').textContent = id;
     $('fileNote').style.display = location.protocol.startsWith('http') ? 'none' : '';
     setStatus('Waiting for your friend to join…');
+    relayStart(id, 'h').catch(() => {}); // also listen on the backup relay, in case the direct link can't be made
   });
-  net.peer.on('connection', c => { if (net.conn) { c.close(); return; } setupConn(c); });
-  net.peer.on('error', e => setStatus('Connection problem: ' + (e.type || e.message)));
+  net.peer.on('connection', c => { if (net.conn && net.conn.open) { c.close(); return; } setupConn(c); });
+  net.peer.on('error', e => { if (!net.remote) setStatus('Connection problem: ' + (e.type || e.message)); });
 }
 async function joinRoom(raw) {
   const id = (raw.match(/join=([^&#\s]+)/) || [, raw.trim()])[1];
   if (!id) return;
   netReset(); $('onStart').style.display = 'none'; $('onRoom').style.display = ''; $('hostShare').style.display = 'none';
   $('hostControls').style.display = 'none'; $('guestInfo').style.display = ''; setStatus('Joining room…');
-  try { await loadPeer(); } catch (e) { setStatus(e.message); return; }
+  if (FORCE_RELAY) return useRelayAsGuest(id);
+  try { await loadPeer(); } catch (e) { return useRelayAsGuest(id); }
   net.peer = new Peer();
   net.peer.on('open', () => setupConn(net.peer.connect(id, { reliable: true })));
-  net.peer.on('error', e => setStatus(e.type === 'peer-unavailable' ? 'Room not found. Ask your friend for a new link.' : 'Connection problem: ' + (e.type || e.message)));
+  net.peer.on('error', e => {
+    if (e.type === 'peer-unavailable') { clearTimeout(net.timer); setStatus('Room not found. Ask your friend for a new link.'); }
+    else useRelayAsGuest(id);
+  });
+  net.timer = setTimeout(() => useRelayAsGuest(id), 7000);
+}
+async function useRelayAsGuest(id) {
+  if ((net.conn && net.conn.open) || net.usingRelay) return;
+  net.usingRelay = true; clearTimeout(net.timer);
+  setStatus('Direct connection blocked by the network. Trying the backup connection…');
+  const old = net.conn; net.conn = null; try { old && old.close(); } catch (e) {}
+  try { await relayStart(id, 'g'); } catch (e) { setStatus('Could not connect. Try a different Wi-Fi or a phone hotspot.'); return; }
+  net.conn = makeRelayConn();
+  send({ t: 'hello', profile: myProfile(), coins: save.coins });
+  setStatus('Connected to the backup server. Waiting for the host…');
 }
 function setupConn(c) {
   net.conn = c;
-  c.on('open', () => send({ t: 'hello', profile: myProfile(), coins: save.coins }));
-  c.on('data', onNet);
-  c.on('close', () => {
-    net.conn = null;
-    const them = cars.find(x => x.remote);
-    if (mode === 'online' && them && !them.done && (state === 'race' || state === 'countdown' || state === 'finished')) { them.left = true; maybeFinishOnline(); }
-    net.remote = null; setStatus('Your friend left the room.'); updateLobby();
-  });
+  c.on('open', () => { if (net.conn !== c) return; clearTimeout(net.timer); send({ t: 'hello', profile: myProfile(), coins: save.coins }); });
+  c.on('data', m => { if (net.conn === c) onNet(m); });
+  c.on('close', () => { if (net.conn === c) onConnClosed(); });
+}
+function onConnClosed() {
+  net.conn = null;
+  const them = cars.find(x => x.remote);
+  if (mode === 'online' && them && !them.done && (state === 'race' || state === 'countdown' || state === 'finished')) { them.left = true; maybeFinishOnline(); }
+  net.remote = null; setStatus('Your friend left the room.'); updateLobby();
 }
 function send(m) { if (net.conn && net.conn.open) net.conn.send(m); }
 function onNet(m) {
