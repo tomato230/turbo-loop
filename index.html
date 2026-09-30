@@ -86,7 +86,7 @@
   <button class="btn primary" data-go="scrTracks"><span>RACE THE AI</span></button>
   <button class="btn" data-go="scrOnline"><span class="ico">🌐</span><span>Race friends online<small>Up to 4 players · send a link</small></span></button>
   <button class="btn" data-go="scrGarage"><span class="ico">🔧</span><span>Garage<small>Paint job, body style, name</small></span></button>
-  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.0</p>
+  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.1</p>
 </div></div>
 
 <div class="screen" id="scrTracks"><div class="card wide">
@@ -323,11 +323,11 @@ const AI_DRIVERS = [{ name: 'Blaze', skill: .95 }, { name: 'Viper', skill: .92 }
 let cars = [], skids = [], dust = [], mode = 'solo', stake = 0, coinDelta = 0, coinNotes = [], raceSize = 0;
 
 function makeCar(profile, gridSlot, extra) {
-  const gi = TR.N - 14 - Math.floor(gridSlot / 2) * 16, p = at(gi), a = tanAt(gi), side = gridSlot % 2 ? 1 : -1, lane = side * 38;
+  const gi = TR.N - 14 - Math.floor(gridSlot / 2) * 10, p = at(gi), a = tanAt(gi), side = gridSlot % 2 ? 1 : -1, lane = side * 38;
   return Object.assign({
     name: profile.name, body: profile.body, stripe: profile.stripeOn === false ? null : stripeFor(profile.body), style: profile.style,
     x: p[0] - Math.sin(a) * lane, y: p[1] + Math.cos(a) * lane, a, vx: 0, vy: 0, speed: 0, idx: gi, lap: 0, next: SECTORS, wrongT: 0,
-    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, snaps: [], clock: null,
+    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, net: null, ex: 0, ey: 0, lastRt: null, lat: null, w: null, lastSnap: null,
   }, extra);
 }
 
@@ -465,13 +465,15 @@ function aiControl(car, dt) {
 function collide() {
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const a = cars[i], b = cars[j];
-    if (a.remote || b.remote) continue; // online opponent is a ghost: no bumping over the network
+    if (a.remote && b.remote) continue;
     const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), r = 34;
     if (d > 0 && d < r) {
       const nx = dx / d, ny = dy / d, push = (r - d) / 2;
-      a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+      // with an online driver, only my own car reacts here (theirs reacts on their screen)
+      const ma = a.remote ? 0 : b.remote ? 2 : 1, mb = b.remote ? 0 : a.remote ? 2 : 1;
+      a.x -= nx * push * ma; a.y -= ny * push * ma; b.x += nx * push * mb; b.y += ny * push * mb;
       const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-      if (rv < 0) { const imp = -rv * .6; a.vx -= nx * imp; a.vy -= ny * imp; b.vx += nx * imp; b.vy += ny * imp; }
+      if (rv < 0) { const imp = -rv * .6; a.vx -= nx * imp * ma; a.vy -= ny * imp * ma; b.vx += nx * imp * mb; b.vy += ny * imp * mb; }
     }
   }
 }
@@ -558,30 +560,44 @@ function update(dt) {
   }
 }
 
-// ---------- smooth remote cars: play them back ~0.12 s in the past, gliding between received positions ----------
-const INTERP = .12;
+// ---------- remote cars: predicted "right now" from their last position + speed, errors smoothed away ----------
 function pushSnap(c, s) {
-  if (c.snaps.length && s.rt <= c.snaps.at(-1).rt) return;
-  c.snaps.push(s); if (c.snaps.length > 40) c.snaps.shift();
-  if (c.clock == null || Math.abs((s.rt - INTERP) - c.clock) > .6) c.clock = s.rt - INTERP;
+  if (s.rid !== net.rid) return;                          // message from a previous race: ignore
+  if (c.lastRt != null && s.rt <= c.lastRt) return;         // out-of-order packet
+  if (c.lastSnap) {                                         // turning rate, so predictions follow the curve
+    let da = s.a - c.lastSnap.a; da = Math.atan2(Math.sin(da), Math.cos(da));
+    const w = da / Math.max(1e-3, s.rt - c.lastSnap.rt);
+    c.w = c.w == null ? w : c.w * .5 + w * .5;
+  }
+  c.lastSnap = s; c.lastRt = s.rt; c.lastRecv = performance.now();
+  const lat = Math.min(.3, Math.max(0, raceTime - s.rt));   // how old this position is
+  c.lat = c.lat == null ? lat : c.lat * .9 + lat * .1;
+  const p = { x: s.x, y: s.y, a: s.a, vx: s.vx, vy: s.vy };
+  advance(p, c.w || 0, c.lat);
+  if (!c.net || Math.hypot(c.x - p.x, c.y - p.y) > 160) { c.x = p.x; c.y = p.y; c.a = p.a; c.ex = 0; c.ey = 0; }
+  else { c.ex = c.x - p.x; c.ey = c.y - p.y; }             // shown vs. predicted: fade this gap out smoothly
+  c.net = p;
   Object.assign(c, { lap: s.lap, idx: s.idx, speed: s.sp });
   if (s.done && !c.done) { c.done = true; c.finishTime = s.ft; maybeFinishOnline(); }
 }
-function remoteStep(c, dt) {
-  if (!c.snaps.length) return;
-  const last = c.snaps.at(-1);
-  c.clock += dt; c.clock += ((last.rt - INTERP) - c.clock) * .05; // follow the sender's clock, gently
-  let a = null, b = null;
-  for (let i = c.snaps.length - 1; i > 0; i--) if (c.snaps[i - 1].rt <= c.clock) { a = c.snaps[i - 1]; b = c.snaps[i]; break; }
-  if (a && c.clock <= b.rt) {
-    const k = (c.clock - a.rt) / Math.max(1e-3, b.rt - a.rt);
-    let d = b.a - a.a; d = Math.atan2(Math.sin(d), Math.cos(d));
-    c.x = a.x + (b.x - a.x) * k; c.y = a.y + (b.y - a.y) * k; c.a = a.a + d * k;
-  } else {
-    const e = Math.min(.25, Math.max(0, c.clock - last.rt));
-    c.x = last.x + last.vx * e; c.y = last.y + last.vy * e; c.a = last.a;
+// move a predicted car forward in time along a curve (velocity rotates with the turning rate)
+function advance(p, w, t) {
+  const n = Math.max(1, Math.ceil(t / (1 / 60)));
+  const h = t / n, cw = Math.cos(w * h), sw = Math.sin(w * h);
+  for (let i = 0; i < n; i++) {
+    const vx = p.vx * cw - p.vy * sw, vy = p.vx * sw + p.vy * cw;
+    p.vx = vx; p.vy = vy; p.x += vx * h; p.y += vy * h; p.a += w * h;
   }
-  c.vx = last.vx; c.vy = last.vy;
+}
+function remoteStep(c, dt) {
+  if (!c.net) return;
+  const stale = performance.now() - c.lastRecv > 300;       // no news: slow down instead of flying off
+  if (stale) { c.net.vx *= .9; c.net.vy *= .9; }
+  advance(c.net, stale ? 0 : (c.w || 0), dt);
+  const k = Math.exp(-dt * 10); c.ex *= k; c.ey *= k;
+  c.x = c.net.x + c.ex; c.y = c.net.y + c.ey;
+  let d = c.net.a - c.a; d = Math.atan2(Math.sin(d), Math.cos(d)); c.a += d * Math.min(1, dt * 15);
+  c.vx = c.net.vx; c.vy = c.net.vy;
 }
 
 // ---------- online: up to 4 drivers ----------
@@ -764,12 +780,13 @@ function dropGuest(id) {
 function fromGuest(id, m) {
   const gst = net.guests.get(id);
   if (m.t === 'hello') { gst.profile = m.profile; gst.coins = m.coins | 0; broadcastRoster(); }
-  else if (m.t === 's') { net.states.set(id, m); const c = cars.find(x => x.id === id); if (c && mode === 'online') pushSnap(c, m); }
+  else if (m.t === 's') { if (m.rid !== net.rid) return; net.states.set(id, m); const c = cars.find(x => x.id === id); if (c && mode === 'online') pushSnap(c, m); }
 }
 function hostStart() {
   if (!net.isHost || net.guests.size < 1) return;
   const order = buildRoster().map(p => ({ id: p.id, profile: p.profile })).sort(() => Math.random() - .5);
-  const m = { t: 'start', track: net.lobby.track, stake: net.lobby.stake, order };
+  net.rid = Math.random().toString(36).slice(2, 10);
+  const m = { t: 'start', rid: net.rid, track: net.lobby.track, stake: net.lobby.stake, order };
   for (const [, gst] of net.guests) gst.conn.send(m);
   net.states = new Map();
   startRace({ mode: 'online', trackId: m.track, stake: m.stake, order });
@@ -816,7 +833,7 @@ function fromHost(m) {
   if (!m || !m.t) return;
   if (m.t === 'full') { setStatus('This room is full (4 drivers max).'); net.hostConn = null; return; }
   if (m.t === 'roster') { net.roster = m.players; net.lobby = { track: m.track, stake: m.stake }; updateLobby(); }
-  else if (m.t === 'start') { net.lobby = { track: m.track, stake: m.stake }; startRace({ mode: 'online', trackId: m.track, stake: m.stake, order: m.order }); }
+  else if (m.t === 'start') { net.lobby = { track: m.track, stake: m.stake }; net.rid = m.rid; startRace({ mode: 'online', trackId: m.track, stake: m.stake, order: m.order }); }
   else if (m.t === 'ss') {
     if (mode !== 'online') return;
     for (const s of m.states) { if (s.id === ME) continue; const c = cars.find(x => x.id === s.id); if (c) pushSnap(c, s); }
@@ -833,9 +850,9 @@ function hostGone() {
 // --- race traffic ---
 function sendState(force) {
   const now = performance.now();
-  if (!force && now - net.lastSend < 50) return;
+  if (!force && now - net.lastSend < 33) return;
   net.lastSend = now; const c = cars[0];
-  const s = { t: 's', id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime };
+  const s = { t: 's', rid: net.rid, id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime };
   if (net.isHost) {
     net.states.set(ME, s);
     const all = [...net.states.values()];
