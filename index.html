@@ -86,7 +86,7 @@
   <button class="btn primary" data-go="scrTracks"><span>RACE THE AI</span></button>
   <button class="btn" data-go="scrOnline"><span class="ico">🌐</span><span>Race friends online<small>Up to 4 players · send a link</small></span></button>
   <button class="btn" data-go="scrGarage"><span class="ico">🔧</span><span>Garage<small>Paint job, body style, name</small></span></button>
-  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.1</p>
+  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.2</p>
 </div></div>
 
 <div class="screen" id="scrTracks"><div class="card wide">
@@ -327,7 +327,7 @@ function makeCar(profile, gridSlot, extra) {
   return Object.assign({
     name: profile.name, body: profile.body, stripe: profile.stripeOn === false ? null : stripeFor(profile.body), style: profile.style,
     x: p[0] - Math.sin(a) * lane, y: p[1] + Math.cos(a) * lane, a, vx: 0, vy: 0, speed: 0, idx: gi, lap: 0, next: SECTORS, wrongT: 0,
-    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, net: null, ex: 0, ey: 0, lastRt: null, lat: null, w: null, lastSnap: null,
+    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, net: null, ex: 0, ey: 0, lastRt: null, w: null, lastSnap: null, offs: [],
   }, extra);
 }
 
@@ -348,7 +348,7 @@ function startRace(opts) {
     });
   }
   raceSize = cars.length;
-  skids = []; dust = []; raceTime = 0; tState = 0; lastCount = 4; acc = 0; finishWait = 0; state = 'countdown';
+  skids = []; dust = []; raceTime = 0; tState = 0; lastCount = 4; acc = 0; finishWait = 0; state = opts.wait ? 'waiting' : 'countdown';
   showScreen(null);
 }
 
@@ -361,7 +361,7 @@ addEventListener('keydown', e => {
   audioInit();
   if (state === 'finished' && e.code === 'Enter') {
     if (mode === 'solo') startRace({ mode: 'solo', trackId: TR.id });
-    else if (net.isHost) hostStart();
+    else if (net.isHost && !net.pending) hostStart();
   } else if ((e.code === 'KeyQ' || (e.code === 'Escape' && state === 'finished')) && state !== 'menu') {
     toMenu();
   } else if ((e.code === 'KeyP' || e.code === 'Escape') && mode === 'solo') {
@@ -567,15 +567,19 @@ function pushSnap(c, s) {
   if (c.lastSnap) {                                         // turning rate, so predictions follow the curve
     let da = s.a - c.lastSnap.a; da = Math.atan2(Math.sin(da), Math.cos(da));
     const w = da / Math.max(1e-3, s.rt - c.lastSnap.rt);
-    c.w = c.w == null ? w : c.w * .5 + w * .5;
+    c.w = c.w == null ? w : c.w * .6 + w * .4;
   }
   c.lastSnap = s; c.lastRt = s.rt; c.lastRecv = performance.now();
-  const lat = Math.min(.3, Math.max(0, raceTime - s.rt));   // how old this position is
-  c.lat = c.lat == null ? lat : c.lat * .9 + lat * .1;
+  // Real age of THIS packet: (my clock - its send clock) minus the smallest such gap seen recently (removes the clock
+  // difference), plus the measured one-way network delay. Packets that arrive late in a burst get predicted further.
+  const off = performance.now() / 1000 - s.ts;
+  c.offs.push(off); if (c.offs.length > 120) c.offs.shift();
+  const base = net.isHost ? ((net.guests.get(c.id) || {}).rtt || 0) / 2 : (net.rttHost || 0) / 2 + (s.hl || 0);
+  const age = Math.min(.5, Math.max(0, off - Math.min(...c.offs) + base));
   const p = { x: s.x, y: s.y, a: s.a, vx: s.vx, vy: s.vy };
-  advance(p, c.w || 0, c.lat);
-  if (!c.net || Math.hypot(c.x - p.x, c.y - p.y) > 160) { c.x = p.x; c.y = p.y; c.a = p.a; c.ex = 0; c.ey = 0; }
-  else { c.ex = c.x - p.x; c.ey = c.y - p.y; }             // shown vs. predicted: fade this gap out smoothly
+  advance(p, c.w || 0, age);
+  if (!c.net || Math.hypot(c.x - p.x, c.y - p.y) > 250) { c.x = p.x; c.y = p.y; c.a = p.a; c.ex = 0; c.ey = 0; }
+  else { c.ex = c.x - p.x; c.ey = c.y - p.y; }             // shown vs. predicted: blend this gap away gently
   c.net = p;
   Object.assign(c, { lap: s.lap, idx: s.idx, speed: s.sp });
   if (s.done && !c.done) { c.done = true; c.finishTime = s.ft; maybeFinishOnline(); }
@@ -594,10 +598,13 @@ function remoteStep(c, dt) {
   const stale = performance.now() - c.lastRecv > 300;       // no news: slow down instead of flying off
   if (stale) { c.net.vx *= .9; c.net.vy *= .9; }
   advance(c.net, stale ? 0 : (c.w || 0), dt);
-  const k = Math.exp(-dt * 10); c.ex *= k; c.ey *= k;
+  const k = Math.exp(-dt * 6); c.ex *= k; c.ey *= k;
   c.x = c.net.x + c.ex; c.y = c.net.y + c.ey;
   let d = c.net.a - c.a; d = Math.atan2(Math.sin(d), Math.cos(d)); c.a += d * Math.min(1, dt * 15);
   c.vx = c.net.vx; c.vy = c.net.vy;
+  // skid marks for other drivers too
+  const rxv = -Math.sin(c.a), ryv = Math.cos(c.a), slip = Math.abs(c.vx * rxv + c.vy * ryv), fwd = Math.hypot(c.vx, c.vy);
+  if (slip > 70 && fwd > 80) for (const sd of [-1, 1]) skids.push({ x: c.x - Math.cos(c.a) * 14 + rxv * 9 * sd, y: c.y - Math.sin(c.a) * 14 + ryv * 9 * sd, life: 1 });
 }
 
 // ---------- online: up to 4 drivers ----------
@@ -673,6 +680,11 @@ function onRelay(m) {
     if (m.t !== 'ping') fromHost(m);
   }
 }
+setInterval(() => { // measure round-trip time to the host / to each guest
+  const ts = performance.now() / 1000;
+  if (net.isHost) for (const [, gst] of net.guests) gst.conn.send({ t: 'pi', ts });
+  else if (net.hostConn && net.hostConn.open !== false) net.hostConn.send({ t: 'pi', id: ME, ts });
+}, 1000);
 setInterval(() => { // keep-alive + timeout for relay links
   const now = performance.now();
   if (net.isHost) for (const [id, gst] of net.guests) {
@@ -688,7 +700,7 @@ setInterval(() => { // keep-alive + timeout for relay links
 // --- lobby / roster ---
 function setStatus(t) { $('netStatus').textContent = t; }
 function netReset() {
-  clearTimeout(net.timer);
+  clearTimeout(net.timer); clearInterval(net.prepTimer); clearTimeout(net.waitTimer); net.pending = null; net.rttHost = null;
   if (net.isHost) for (const [, gst] of net.guests) { try { gst.conn.send({ t: 'bye', id: ME }); gst.conn.close(); } catch (e) {} }
   try { net.hostConn && net.hostConn.close(); } catch (e) {}
   try { net.peer && net.peer.destroy(); } catch (e) {}
@@ -773,6 +785,7 @@ function addGuest(id, conn) {
 function dropGuest(id) {
   const gst = net.guests.get(id); if (!gst) return;
   net.guests.delete(id); try { gst.conn.close(); } catch (e) {}
+  if (net.pending) setTimeout(checkAllReady, 0);
   const c = cars.find(x => x.id === id);
   if (mode === 'online' && c && !c.done) { c.left = true; for (const [, o] of net.guests) o.conn.send({ t: 'left', id }); maybeFinishOnline(); }
   broadcastRoster();
@@ -780,16 +793,47 @@ function dropGuest(id) {
 function fromGuest(id, m) {
   const gst = net.guests.get(id);
   if (m.t === 'hello') { gst.profile = m.profile; gst.coins = m.coins | 0; broadcastRoster(); }
-  else if (m.t === 's') { if (m.rid !== net.rid) return; net.states.set(id, m); const c = cars.find(x => x.id === id); if (c && mode === 'online') pushSnap(c, m); }
+  else if (m.t === 's') {
+    if (m.rid !== net.rid) return;
+    m.hl = (gst.rtt || 0) / 2; // forwarded states carry this guest's delay to me, so others can predict correctly
+    net.states.set(id, m); const c = cars.find(x => x.id === id); if (c && mode === 'online') pushSnap(c, m);
+  }
+  else if (m.t === 'ready') { if (net.pending && m.rid === net.pending.rid) { net.pending.ready.add(id); checkAllReady(); } }
+  else if (m.t === 'pi') gst.conn.send({ t: 'po', ts: m.ts });
+  else if (m.t === 'po') { const r = performance.now() / 1000 - m.ts; gst.rtt = gst.rtt == null ? r : gst.rtt * .8 + r * .2; }
 }
+// Starting a race (first one or a rematch): the host sends "prep", every guest loads the track and answers "ready",
+// and only when ALL are ready does the host send "go" — then everyone's start lights begin at the same moment.
+// Messages are repeated until answered, so a lost packet on a slow link can't leave anyone behind.
 function hostStart() {
-  if (!net.isHost || net.guests.size < 1) return;
+  if (!net.isHost || net.guests.size < 1 || net.pending) return;
   const order = buildRoster().map(p => ({ id: p.id, profile: p.profile })).sort(() => Math.random() - .5);
-  net.rid = Math.random().toString(36).slice(2, 10);
-  const m = { t: 'start', rid: net.rid, track: net.lobby.track, stake: net.lobby.stake, order };
-  for (const [, gst] of net.guests) gst.conn.send(m);
-  net.states = new Map();
-  startRace({ mode: 'online', trackId: m.track, stake: m.stake, order });
+  net.rid = Math.random().toString(36).slice(2, 10); net.states = new Map();
+  net.pending = { rid: net.rid, track: net.lobby.track, stake: net.lobby.stake, order, ready: new Set([ME]), since: performance.now() };
+  startRace({ mode: 'online', trackId: net.pending.track, stake: net.pending.stake, order, wait: true });
+  sendPrep(); net.prepTimer = setInterval(sendPrep, 700);
+}
+function sendPrep() {
+  const P = net.pending; if (!P) return clearInterval(net.prepTimer);
+  const m = { t: 'prep', rid: P.rid, track: P.track, stake: P.stake, order: P.order };
+  for (const [id, gst] of net.guests) if (!P.ready.has(id)) gst.conn.send(m);
+  checkAllReady();
+}
+function checkAllReady() {
+  const P = net.pending; if (!P) return;
+  const inRace = P.order.filter(p => p.id === ME || net.guests.has(p.id));
+  const allReady = inRace.every(p => P.ready.has(p.id));
+  const timedOut = performance.now() - P.since > 10000;
+  if (!allReady && !timedOut) return;
+  clearInterval(net.prepTimer); net.pending = null;
+  const order = inRace.filter(p => P.ready.has(p.id)); // anyone who never answered is left out
+  if (order.length < 2) { toMenu(); setStatus('Nobody else was ready. Try again.'); return; }
+  const go = { t: 'go', rid: P.rid, track: P.track, stake: P.stake, order };
+  for (let k = 0; k < 3; k++) setTimeout(() => { for (const [id, gst] of net.guests) if (P.ready.has(id)) gst.conn.send(go); }, k * 150);
+  if (order.length !== P.order.length) startRace({ mode: 'online', trackId: P.track, stake: P.stake, order, wait: true });
+  // start my own lights after the slowest guest's one-way delay, so all lights start together
+  const delay = Math.max(0, ...order.filter(p => p.id !== ME).map(p => (net.guests.get(p.id).rtt || 0) / 2));
+  setTimeout(() => { if (state === 'waiting' && net.rid === P.rid) { state = 'countdown'; tState = 0; } }, delay * 1000);
 }
 
 // --- guest side ---
@@ -833,7 +877,21 @@ function fromHost(m) {
   if (!m || !m.t) return;
   if (m.t === 'full') { setStatus('This room is full (4 drivers max).'); net.hostConn = null; return; }
   if (m.t === 'roster') { net.roster = m.players; net.lobby = { track: m.track, stake: m.stake }; updateLobby(); }
-  else if (m.t === 'start') { net.lobby = { track: m.track, stake: m.stake }; net.rid = m.rid; startRace({ mode: 'online', trackId: m.track, stake: m.stake, order: m.order }); }
+  else if (m.t === 'prep') {
+    if (net.rid !== m.rid) { // a repeated prep for the race I'm already in only gets a repeated 'ready'
+      net.lobby = { track: m.track, stake: m.stake }; net.rid = m.rid;
+      startRace({ mode: 'online', trackId: m.track, stake: m.stake, order: m.order, wait: true });
+      clearTimeout(net.waitTimer); net.waitTimer = setTimeout(() => { if (state === 'waiting') { toMenu(); setStatus('The race did not start. Waiting for the host…'); } }, 15000);
+    }
+    net.hostConn.send({ t: 'ready', id: ME, rid: m.rid });
+  } else if (m.t === 'go') {
+    if (m.rid !== net.rid || state !== 'waiting') return;
+    clearTimeout(net.waitTimer);
+    if (m.order.length !== cars.length) startRace({ mode: 'online', trackId: m.track, stake: m.stake, order: m.order, wait: true });
+    state = 'countdown'; tState = 0;
+  }
+  else if (m.t === 'pi') net.hostConn.send({ t: 'po', id: ME, ts: m.ts });
+  else if (m.t === 'po') { const r = performance.now() / 1000 - m.ts; net.rttHost = net.rttHost == null ? r : net.rttHost * .8 + r * .2; }
   else if (m.t === 'ss') {
     if (mode !== 'online') return;
     for (const s of m.states) { if (s.id === ME) continue; const c = cars.find(x => x.id === s.id); if (c) pushSnap(c, s); }
@@ -852,7 +910,7 @@ function sendState(force) {
   const now = performance.now();
   if (!force && now - net.lastSend < 33) return;
   net.lastSend = now; const c = cars[0];
-  const s = { t: 's', rid: net.rid, id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime };
+  const s = { t: 's', rid: net.rid, id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime, ts: performance.now() / 1000 };
   if (net.isHost) {
     net.states.set(ME, s);
     const all = [...net.states.values()];
@@ -973,6 +1031,10 @@ function drawStartLights() {
   }
 }
 function drawScreens() {
+  if (state === 'waiting') {
+    const P = net.pending, txt = P ? `Waiting for drivers…  ${P.ready.size}/${P.order.filter(p => p.id === ME || net.guests.has(p.id)).length} ready` : 'Get ready… waiting for everyone';
+    slab(W / 2 - 250, Math.max(90, H * .2), 500, 80, '#ffcc00'); text(txt, W / 2, Math.max(90, H * .2) + 40, 24, '#fff', 'center', 'd');
+  }
   if (state === 'countdown') drawStartLights();
   if (state === 'race' && tState < .9) {
     g.save(); g.globalAlpha = 1 - tState / .9; text('GO GO GO!', W / 2, H * .32, 90, '#2ec4b6', 'center', 'd'); g.restore();
