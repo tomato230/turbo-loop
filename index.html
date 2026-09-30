@@ -136,7 +136,7 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
-const LAPS = 3, HALF_W = 95, WORLD_W = 3600, WORLD_H = 2700, MAX = 560;
+const LAPS = 3, HALF_W = 95, WORLD_W = 3600, WORLD_H = 2700, MAX = 560, SECTORS = 8;
 const FONT = '"Arial Rounded MT Bold", "Helvetica Neue", Arial, sans-serif';
 const $ = id => document.getElementById(id);
 
@@ -304,7 +304,7 @@ function makeCar(profile, gridSlot, extra) {
   const gi = TR.N - 14 - Math.floor(gridSlot / 2) * 16, p = at(gi), a = tanAt(gi), side = gridSlot % 2 ? 1 : -1, lane = side * 38;
   return Object.assign({
     name: profile.name, body: profile.body, stripe: profile.stripeOn === false ? null : stripeFor(profile.body), style: profile.style,
-    x: p[0] - Math.sin(a) * lane, y: p[1] + Math.cos(a) * lane, a, vx: 0, vy: 0, speed: 0, idx: gi, lap: 0, cp: true,
+    x: p[0] - Math.sin(a) * lane, y: p[1] + Math.cos(a) * lane, a, vx: 0, vy: 0, speed: 0, idx: gi, lap: 0, next: SECTORS, wrongT: 0,
     lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lane: side * 22, laneT: Math.random() * 10,
   }, extra);
 }
@@ -376,7 +376,8 @@ function beep(freq, len) {
 function drive(car, ctl, dt) {
   const N = TR.N, fx = Math.cos(car.a), fy = Math.sin(car.a), rx = -fy, ry = fx;
   let vf = car.vx * fx + car.vy * fy, vr = car.vx * rx + car.vy * ry;
-  const [idx, dist] = nearestIndex(car.x, car.y, car.idx);
+  let [idx, dist] = nearestIndex(car.x, car.y, car.idx);
+  if (dist > HALF_W * 2.5) [idx, dist] = nearestIndex(car.x, car.y, null); // far off track: re-find position on the whole track
   const prev = car.idx; car.idx = idx;
   car.off = dist > HALF_W + 6;
   const max = (car.off ? MAX * .45 : MAX) * car.skill;
@@ -405,16 +406,19 @@ function drive(car, ctl, dt) {
   if (car.off && Math.abs(vf) > 60 && Math.random() < .6)
     dust.push({ x: car.x - nfx * 18, y: car.y - nfy * 18, vx: -nfx * 30 + (Math.random() - .5) * 40, vy: -nfy * 30 + (Math.random() - .5) * 40, life: 1 });
 
-  // laps: pass the halfway checkpoint, then cross the line
-  if (idx > N * .45 && idx < N * .55) car.cp = true;
-  if (prev > N * .8 && idx < N * .2 && car.cp && !car.done) {
-    car.cp = false; car.lap++;
+  // Anti-cheat: a lap only counts if all 8 checkpoints were passed in order since the last one.
+  // Driving backwards or cutting across the grass skips checkpoints, so those laps never count.
+  const sec = Math.floor(idx / N * SECTORS), prevSec = Math.floor(prev / N * SECTORS);
+  if (car.next < SECTORS && sec === car.next && prevSec === (car.next + SECTORS - 1) % SECTORS) car.next++; // entered from the sector before = moving forwards
+  const along = car.vx * Math.cos(tanAt(idx)) + car.vy * Math.sin(tanAt(idx));
+  car.wrongT = along < -40 ? car.wrongT + dt : 0;
+  if (prev > N * .8 && idx < N * .2 && !car.done && car.next === SECTORS) {
+    car.next = Math.floor(idx / N * SECTORS) === 0 ? 1 : 0; car.lap++;
     if (car.lap >= 2) car.laps.push(raceTime - car.lapStart);
     car.lapStart = raceTime;
     if (car.local && car.lap >= 2 && car.lap <= LAPS) beep(880, .12);
     if (car.lap > LAPS) { car.done = true; car.finishTime = raceTime; if (car.local) onLocalFinish(); }
   }
-  if (prev < N * .2 && idx > N * .8 && !car.done) car.cp = false;
 }
 
 function aiControl(car, dt) {
@@ -681,6 +685,9 @@ function drawScreens() {
     g.save(); g.globalAlpha = 1 - k * .6; text(n > 0 ? String(n) : 'GO!', W / 2, H / 2 - 60, 120 + k * 40, n > 0 ? '#fff' : '#3bceac', 'center'); g.restore();
   }
   if (state === 'race' && tState < .8) { g.save(); g.globalAlpha = 1 - tState / .8; text('GO!', W / 2, H / 2 - 60, 160, '#3bceac', 'center'); g.restore(); }
+  if (state === 'race' && !cars[0].done && cars[0].wrongT > .6 && Math.floor(performance.now() / 300) % 2) {
+    panel(W / 2 - 160, H / 2 - 150, 320, 70); text('⚠ WRONG WAY', W / 2, H / 2 - 115, 36, '#ff5252', 'center');
+  }
   if (state === 'race' && cars[0].done && mode === 'online') { panel(W / 2 - 200, 20, 400, 50); text('Finished! Waiting for your friend…', W / 2, 45, 18, '#fff', 'center'); }
   if (state === 'paused') { overlay(.5); text('PAUSED', W / 2, H / 2, 64, '#fff', 'center'); text('P continue · R restart · Q menu', W / 2, H / 2 + 56, 18, '#fff', 'center'); }
   if (state === 'finished') {
