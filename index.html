@@ -86,7 +86,7 @@
   <button class="btn primary" data-go="scrTracks"><span>RACE THE AI</span></button>
   <button class="btn" data-go="scrOnline"><span class="ico">🌐</span><span>Race friends online<small>Up to 4 players · send a link</small></span></button>
   <button class="btn" data-go="scrGarage"><span class="ico">🔧</span><span>Garage<small>Paint job, body style, name</small></span></button>
-  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.2</p>
+  <p class="hint"><kbd>↑</kbd><kbd>W</kbd> gas · <kbd>↓</kbd><kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> drift · <kbd>R</kbd> respawn · <kbd>M</kbd> sound · <kbd>Q</kbd> menu<br>Version 2.3</p>
 </div></div>
 
 <div class="screen" id="scrTracks"><div class="card wide">
@@ -327,7 +327,7 @@ function makeCar(profile, gridSlot, extra) {
   return Object.assign({
     name: profile.name, body: profile.body, stripe: profile.stripeOn === false ? null : stripeFor(profile.body), style: profile.style,
     x: p[0] - Math.sin(a) * lane, y: p[1] + Math.cos(a) * lane, a, vx: 0, vy: 0, speed: 0, idx: gi, lap: 0, next: SECTORS, wrongT: 0,
-    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, net: null, ex: 0, ey: 0, lastRt: null, w: null, lastSnap: null, offs: [],
+    lapStart: 0, laps: [], done: false, finishTime: 0, off: false, skill: 1, lastGood: gi, dist: 0, lane: side * 22, laneT: Math.random() * 10, sim: null, simAcc: 0, ex: 0, ey: 0, ea: 0, evx: 0, evy: 0, eva: 0, lastRt: null, offs: [],
   }, extra);
 }
 
@@ -399,8 +399,10 @@ function beep(freq, len) {
 
 
 // ---------- physics ----------
-function drive(car, ctl, dt) {
-  const N = TR.N, fx = Math.cos(car.a), fy = Math.sin(car.a), rx = -fy, ry = fx;
+// Pure car physics (no laps, no effects). Used for my car, the AI, and to re-drive other players' cars
+// from their inputs, so their car moves on my screen exactly the way it moves on theirs.
+function carPhysics(car, ctl, dt) {
+  const fx = Math.cos(car.a), fy = Math.sin(car.a), rx = -fy, ry = fx;
   let vf = car.vx * fx + car.vy * fy, vr = car.vx * rx + car.vy * ry;
   let [idx, dist] = nearestIndex(car.x, car.y, car.idx);
   if (dist > HALF_W * 2.5) [idx, dist] = nearestIndex(car.x, car.y, null); // far off track: re-find position on the whole track
@@ -425,7 +427,10 @@ function drive(car, ctl, dt) {
   car.x = Math.max(20, Math.min(WORLD_W - 20, car.x + car.vx * dt));
   car.y = Math.max(20, Math.min(WORLD_H - 20, car.y + car.vy * dt));
   car.speed = vf; car.slip = Math.abs(vr);
-
+  return { prev, idx, vf, nfx, nfy };
+}
+function drive(car, ctl, dt) {
+  const N = TR.N, { prev, idx, vf, nfx, nfy } = carPhysics(car, ctl, dt);
   if (car.slip > 70 && !car.off && Math.abs(vf) > 80) {
     for (const s of [-1, 1]) skids.push({ x: car.x - nfx * 14 - nfy * 9 * s, y: car.y - nfy * 14 + nfx * 9 * s, life: 1 });
     if (skids.length > 1400) skids.splice(0, skids.length - 1400);
@@ -529,7 +534,7 @@ function physicsStep(dt) {
   for (const c of cars) {
     if (c.remote) continue;
     const ctl = c.ai ? aiControl(c, dt) : c.done ? { gas: false, brake: true, steer: 0 } : input();
-    drive(c, ctl, dt);
+    c.ctl = ctl; drive(c, ctl, dt);
   }
   collide();
 }
@@ -563,48 +568,44 @@ function update(dt) {
 // ---------- remote cars: predicted "right now" from their last position + speed, errors smoothed away ----------
 function pushSnap(c, s) {
   if (s.rid !== net.rid) return;                          // message from a previous race: ignore
-  if (c.lastRt != null && s.rt <= c.lastRt) return;         // out-of-order packet
-  if (c.lastSnap) {                                         // turning rate, so predictions follow the curve
-    let da = s.a - c.lastSnap.a; da = Math.atan2(Math.sin(da), Math.cos(da));
-    const w = da / Math.max(1e-3, s.rt - c.lastSnap.rt);
-    c.w = c.w == null ? w : c.w * .6 + w * .4;
-  }
-  c.lastSnap = s; c.lastRt = s.rt; c.lastRecv = performance.now();
-  // Real age of THIS packet: (my clock - its send clock) minus the smallest such gap seen recently (removes the clock
-  // difference), plus the measured one-way network delay. Packets that arrive late in a burst get predicted further.
+  if (c.lastRt != null && s.rt <= c.lastRt) return;         // late or duplicate packet: a newer one already arrived
+  c.lastRt = s.rt; c.lastRecv = performance.now();
+  const i = s.in || [0, 0, 0, 0];
+  c.ctl = { gas: !!i[0], brake: !!i[1], steer: i[2], hand: !!i[3] };
+  // Real age of THIS packet: (my clock - its send clock) minus the smallest such gap seen recently (removes the
+  // clock difference), plus the measured one-way network delay.
   const off = performance.now() / 1000 - s.ts;
-  c.offs.push(off); if (c.offs.length > 120) c.offs.shift();
+  c.offs.push(off); if (c.offs.length > 180) c.offs.shift();
   const base = net.isHost ? ((net.guests.get(c.id) || {}).rtt || 0) / 2 : (net.rttHost || 0) / 2 + (s.hl || 0);
   const age = Math.min(.5, Math.max(0, off - Math.min(...c.offs) + base));
-  const p = { x: s.x, y: s.y, a: s.a, vx: s.vx, vy: s.vy };
-  advance(p, c.w || 0, age);
-  if (!c.net || Math.hypot(c.x - p.x, c.y - p.y) > 250) { c.x = p.x; c.y = p.y; c.a = p.a; c.ex = 0; c.ey = 0; }
-  else { c.ex = c.x - p.x; c.ey = c.y - p.y; }             // shown vs. predicted: blend this gap away gently
-  c.net = p;
-  Object.assign(c, { lap: s.lap, idx: s.idx, speed: s.sp });
+  // Put a copy of their car where it was, then drive it forward with THEIR inputs and the same physics as mine.
+  const sim = { x: s.x, y: s.y, a: s.a, vx: s.vx, vy: s.vy, idx: s.idx, skill: 1, speed: s.sp, lastGood: s.idx };
+  for (let t = age; t > 1e-4; t -= STEP) carPhysics(sim, c.ctl, Math.min(STEP, t));
+  if (!c.sim || Math.hypot(c.x - sim.x, c.y - sim.y) > 250) { c.ex = c.ey = c.ea = c.evx = c.evy = c.eva = 0; c.x = sim.x; c.y = sim.y; c.a = sim.a; }
+  else {                                                    // what I was showing vs. the corrected truth: blend it away
+    c.ex = c.x - sim.x; c.ey = c.y - sim.y;
+    let da = c.a - sim.a; c.ea = Math.atan2(Math.sin(da), Math.cos(da));
+  }
+  c.sim = sim; c.simAcc = 0;
+  Object.assign(c, { lap: s.lap, idx: s.idx });
   if (s.done && !c.done) { c.done = true; c.finishTime = s.ft; maybeFinishOnline(); }
 }
-// move a predicted car forward in time along a curve (velocity rotates with the turning rate)
-function advance(p, w, t) {
-  const n = Math.max(1, Math.ceil(t / (1 / 60)));
-  const h = t / n, cw = Math.cos(w * h), sw = Math.sin(w * h);
-  for (let i = 0; i < n; i++) {
-    const vx = p.vx * cw - p.vy * sw, vy = p.vx * sw + p.vy * cw;
-    p.vx = vx; p.vy = vy; p.x += vx * h; p.y += vy * h; p.a += w * h;
-  }
-}
 function remoteStep(c, dt) {
-  if (!c.net) return;
-  const stale = performance.now() - c.lastRecv > 300;       // no news: slow down instead of flying off
-  if (stale) { c.net.vx *= .9; c.net.vy *= .9; }
-  advance(c.net, stale ? 0 : (c.w || 0), dt);
-  const k = Math.exp(-dt * 6); c.ex *= k; c.ey *= k;
-  c.x = c.net.x + c.ex; c.y = c.net.y + c.ey;
-  let d = c.net.a - c.a; d = Math.atan2(Math.sin(d), Math.cos(d)); c.a += d * Math.min(1, dt * 15);
-  c.vx = c.net.vx; c.vy = c.net.vy;
-  // skid marks for other drivers too
-  const rxv = -Math.sin(c.a), ryv = Math.cos(c.a), slip = Math.abs(c.vx * rxv + c.vy * ryv), fwd = Math.hypot(c.vx, c.vy);
-  if (slip > 70 && fwd > 80) for (const sd of [-1, 1]) skids.push({ x: c.x - Math.cos(c.a) * 14 + rxv * 9 * sd, y: c.y - Math.sin(c.a) * 14 + ryv * 9 * sd, life: 1 });
+  if (!c.sim) return;
+  if (performance.now() - c.lastRecv > 250) c.ctl = { gas: false, brake: false, steer: 0, hand: false }; // no news: coast
+  c.simAcc += dt;
+  while (c.simAcc >= STEP) { carPhysics(c.sim, c.ctl, STEP); c.simAcc -= STEP; }
+  // Spring-damped correction: the gap fades out without ever jerking the car (its speed changes smoothly too).
+  const W2 = 9, steps = Math.max(1, Math.ceil(dt / STEP)), h = dt / steps;
+  for (let n = 0; n < steps; n++) for (const [e, v] of [['ex', 'evx'], ['ey', 'evy'], ['ea', 'eva']]) {
+    c[v] += (-W2 * W2 * c[e] - 2 * W2 * c[v]) * h; c[e] += c[v] * h;
+  }
+  c.x = c.sim.x + c.ex; c.y = c.sim.y + c.ey; c.a = c.sim.a + c.ea;
+  c.vx = c.sim.vx; c.vy = c.sim.vy; c.speed = c.sim.speed;
+  if (c.sim.slip > 70 && !c.sim.off && Math.abs(c.sim.speed) > 80) {
+    const fx = Math.cos(c.a), fy = Math.sin(c.a);
+    for (const sd of [-1, 1]) skids.push({ x: c.x - fx * 14 - fy * 9 * sd, y: c.y - fy * 14 + fx * 9 * sd, life: 1 });
+  }
 }
 
 // ---------- online: up to 4 drivers ----------
@@ -700,7 +701,7 @@ setInterval(() => { // keep-alive + timeout for relay links
 // --- lobby / roster ---
 function setStatus(t) { $('netStatus').textContent = t; }
 function netReset() {
-  clearTimeout(net.timer); clearInterval(net.prepTimer); clearTimeout(net.waitTimer); net.pending = null; net.rttHost = null;
+  clearTimeout(net.timer); clearInterval(net.prepTimer); clearTimeout(net.waitTimer); net.pending = null; net.rttHost = null; try { net.fast && net.fast.close(); } catch (e) {} net.fast = null;
   if (net.isHost) for (const [, gst] of net.guests) { try { gst.conn.send({ t: 'bye', id: ME }); gst.conn.close(); } catch (e) {} }
   try { net.hostConn && net.hostConn.close(); } catch (e) {}
   try { net.peer && net.peer.destroy(); } catch (e) {}
@@ -766,6 +767,16 @@ async function hostRoom() {
     updateLobby();
   });
   net.peer.on('connection', c => {
+    if (c.label === 'fast') {
+      c.on('data', m => {
+        if (!m || !m.t || !net.guests.has(m.id)) return;
+        const gst = net.guests.get(m.id);
+        if (m.t === 'hi2') { gst.fast = c; return; }
+        if (gst.fast === c) fromGuest(m.id, m);
+      });
+      c.on('close', () => { for (const [, gst] of net.guests) if (gst.fast === c) gst.fast = null; });
+      return;
+    }
     c.on('data', m => {
       if (!m || !m.t) return;
       if (m.t === 'hello' && !net.guests.has(m.id)) { if (!addGuest(m.id, c)) return; }
@@ -797,6 +808,7 @@ function fromGuest(id, m) {
     if (m.rid !== net.rid) return;
     m.hl = (gst.rtt || 0) / 2; // forwarded states carry this guest's delay to me, so others can predict correctly
     net.states.set(id, m); const c = cars.find(x => x.id === id); if (c && mode === 'online') pushSnap(c, m);
+    for (const [oid, o] of net.guests) if (oid !== id) sendFast(o, { t: 'ss', states: [m] }, performance.now(), id); // pass it on right away
   }
   else if (m.t === 'ready') { if (net.pending && m.rid === net.pending.rid) { net.pending.ready.add(id); checkAllReady(); } }
   else if (m.t === 'pi') gst.conn.send({ t: 'po', ts: m.ts });
@@ -855,6 +867,10 @@ async function joinRoom(raw) {
       if (net.usingRelay) { c.close(); return; }
       clearTimeout(net.timer); net.hostConn = c;
       c.send({ t: 'hello', id: ME, profile: myProfile(), coins: save.coins });
+      const f = net.peer.connect(id, { reliable: false, label: 'fast' });   // positions: newest wins, no waiting for resends
+      f.on('open', () => { net.fast = f; f.send({ t: 'hi2', id: ME }); });
+      f.on('data', m => { if (net.hostConn === c) fromHost(m); });
+      f.on('close', () => { if (net.fast === f) net.fast = null; });
     });
     c.on('data', m => { if (net.hostConn === c) fromHost(m); });
     c.on('close', () => { if (net.hostConn === c) hostGone(); });
@@ -906,16 +922,25 @@ function hostGone() {
 }
 
 // --- race traffic ---
+// Send a position to one guest: direct links get every update (60/s); relay links at most 30/s per sender.
+function sendFast(gst, m, now, from = ME) {
+  if (gst.fast && gst.fast.open) return gst.fast.send(m);
+  if (gst.conn.relay) { gst.lastTo = gst.lastTo || {}; if (now - (gst.lastTo[from] || 0) < 33) return; gst.lastTo[from] = now; }
+  gst.conn.send(m);
+}
 function sendState(force) {
   const now = performance.now();
-  if (!force && now - net.lastSend < 33) return;
+  if (!force && now - net.lastSend < 16) return; // 60 per second
   net.lastSend = now; const c = cars[0];
-  const s = { t: 's', rid: net.rid, id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime, ts: performance.now() / 1000 };
+  const s = { t: 's', rid: net.rid, id: ME, x: c.x, y: c.y, a: c.a, vx: c.vx, vy: c.vy, sp: c.speed, lap: c.lap, idx: c.idx, done: c.done, ft: c.finishTime, rt: raceTime, ts: performance.now() / 1000,
+    in: c.ctl ? [c.ctl.gas ? 1 : 0, c.ctl.brake ? 1 : 0, c.ctl.steer || 0, c.ctl.hand ? 1 : 0] : [0, 0, 0, 0] };
   if (net.isHost) {
     net.states.set(ME, s);
-    const all = [...net.states.values()];
-    for (const [, gst] of net.guests) gst.conn.send({ t: 'ss', states: all });
-  } else if (net.hostConn) net.hostConn.send(s);
+    for (const [, gst] of net.guests) sendFast(gst, { t: 'ss', states: [s] }, now);
+  } else if (net.hostConn) {
+    if (net.fast && net.fast.open) net.fast.send(s);
+    else if (force || now - (net.lastRelay || 0) >= 33) { net.lastRelay = now; net.hostConn.send(s); }
+  }
 }
 
 // ---------- drawing ----------
